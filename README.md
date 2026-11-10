@@ -5,7 +5,7 @@ Hermes Stage is a self-contained terminal-based multi-profile TUI launched over 
 `hermes stage` launches a multi-profile terminal room over Hermes' local gateway. It does
 not modify Hermes core, and the stock `hermes --tui` continues to work normally.
 
-Current version: **0.50.34**.
+Current version: **0.50.35**.
 
 ## Requirements
 

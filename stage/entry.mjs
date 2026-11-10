@@ -49,7 +49,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.50.34';
+const STAGE_VERSION = '0.50.35';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -2604,6 +2604,48 @@ function enableMouseTracking() {
 function disableMouseTracking() {
   process.stdout.write('\x1b[?1006l\x1b[?1000l');
 }
+
+// VTE (MATE Terminal) ignores DEC 2026 synchronized updates. Coalesce all
+// stdout writes produced in one event-loop turn into a single frame write,
+// so the terminal cannot show the gap between Ink's clear and repaint.
+const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+let frameChunks = [];
+let frameCallbacks = [];
+let frameFlushQueued = false;
+
+function flushFrameBuffer() {
+  frameFlushQueued = false;
+  if (!frameChunks.length) return;
+  const payload = frameChunks.join('');
+  const callbacks = frameCallbacks;
+  frameChunks = [];
+  frameCallbacks = [];
+  originalStdoutWrite(payload, () => {
+    for (const cb of callbacks) {
+      try { cb(); } catch { /* ignore callback errors */ }
+    }
+  });
+}
+
+process.stdout.write = function writeBuffered(chunk, encoding, callback) {
+  if (typeof encoding === 'function') {
+    callback = encoding;
+    encoding = undefined;
+  }
+  frameChunks.push(typeof chunk === 'string'
+    ? chunk
+    : Buffer.from(chunk).toString(encoding || 'utf8'));
+  if (callback) frameCallbacks.push(callback);
+  if (!frameFlushQueued) {
+    frameFlushQueued = true;
+    setImmediate(flushFrameBuffer);
+  }
+  return true;
+};
+
+process.on('exit', () => {
+  flushFrameBuffer();
+});
 
 const columns = process.stdout.columns || 80;
 if (!process.stdout.isTTY) {
