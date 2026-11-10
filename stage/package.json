@@ -1,0 +1,19 @@
+{
+  "name": "hermes-stage",
+  "version": "0.50.34",
+  "private": true,
+  "type": "module",
+  "description": "Hermes Stage - multi-speaker Ink chat host over the canonical Hermes gateway",
+  "license": "MIT",
+  "scripts": {
+    "start": "node entry.mjs"
+  },
+  "dependencies": {
+    "ink": "^8.0.0",
+    "react": "^19.0.0",
+    "string-width": "^8.3.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
