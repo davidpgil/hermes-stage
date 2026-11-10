@@ -52,6 +52,15 @@ HERMES_STAGE_PROFILES=default,profile-a,profile-b hermes stage
 The default profile is always included and is placed first. `HERMES_STAGE_PROFILES=all`
 also selects the full roster.
 
+## Rendering
+
+Stage runs in the terminal's alternate screen and uses Ink's incremental renderer.
+After the initial frame, only changed lines are repainted, so the profile row and
+transcript do not require a full-screen clear on every update.
+
+It uses only public npm dependencies (`ink`, `react`, and `string-width`); no private
+Hermes npm package is required.
+
 ## Using the room
 
 - **`STAGE`** is the unfiltered room. Every profile tab is a **lens** over the same
@@ -94,6 +103,7 @@ scripts/reset-stage-room.sh
 - Opens loopback WebSockets to local Hermes gateways. No third-party network calls.
 - Reads no credentials.
 - Writes the local room transcript to the path above. No other user files are read.
+- Uses only public npm dependencies (`ink`, `react`, `string-width`); no private Hermes npm package.
 - No self-updating code.
 
 ## Known limitations

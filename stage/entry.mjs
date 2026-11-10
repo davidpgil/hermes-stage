@@ -685,7 +685,7 @@ function cleanInlineDiff(raw) {
 
 const DIFF_FILE_RE = /^a\/(.+?) → b\/(.+)$/m;
 
-// Same shape as stock's display path: cwd-relative first, then home-relative, then absolute.
+// Display paths resolve cwd-relative first, then home-relative, then absolute.
 function mentionsMember(name, text) {
   const short = String(name).toLowerCase().split(' · ')[0].trim();
   if (!short) return false;
@@ -1103,7 +1103,7 @@ function useRoom(viewRef) {
     try {
       const text = overrideText != null ? overrideText : buildMemberPrompt(bot, bubblesRef.current);
       // The gateway admits this as a queued submission and runs it FIFO behind
-      // any running turn (stock TUI queue semantics), so no client-side wait.
+      // any running turn (Hermes queue semantics), so no client-side wait.
       await bot.rpc('prompt.submit', {
         session_id: bot.sessionId,
         submission_id: newId('sub'),
@@ -2611,7 +2611,7 @@ if (!process.stdout.isTTY) {
   process.stderr.write('Hermes Stage needs a TTY; run it in a terminal, not a pipe.\n');
   process.exit(1);
 }
-// Match the stock TUI: clear the terminal so the banner starts on a fresh
+// Clear the terminal so the banner starts on a fresh
 // blank page instead of immediately below the `hermes stage` command.
 process.stdout.write('\x1b[2J\x1b[H\x1b[3J');
 // Visible during gateway bring-up: a cleared screen with no line looks hung.

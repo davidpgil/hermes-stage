@@ -2,7 +2,7 @@
 
 Public surfaces only: the plugin registers a CLI subcommand and launches its own
 Ink host. It does not import Hermes core modules, patch core code, or touch the
-stock `hermes --tui` renderer.
+`hermes --tui` renderer.
 """
 
 from __future__ import annotations
