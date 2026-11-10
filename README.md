@@ -1,3 +1,5 @@
+Hermes Stage is a self-contained terminal-based multi-profile TUI launched over the canonical gateway WebSocket. It maintains one ordered shared transcript: the STAGE room is the unfiltered room, while each profile tab is a display lens over that same log rather than a separate chat. Messages are addressed publicly with @name or @everyone; addressed members receive a bounded whole-room context, bot replies can notify peers.
+
 # Hermes Stage
 
 `hermes stage` launches a multi-profile terminal room over Hermes' local gateway. It does
