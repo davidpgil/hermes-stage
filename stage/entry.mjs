@@ -49,7 +49,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.50.35';
+const STAGE_VERSION = '0.50.36';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -2605,16 +2605,23 @@ function disableMouseTracking() {
   process.stdout.write('\x1b[?1006l\x1b[?1000l');
 }
 
-// VTE (MATE Terminal) ignores DEC 2026 synchronized updates. Coalesce all
-// stdout writes produced in one event-loop turn into a single frame write,
-// so the terminal cannot show the gap between Ink's clear and repaint.
-const originalStdoutWrite = process.stdout.write.bind(process.stdout);
+const FRAME_BUFFER_MS = 50;
+const VTE_UNSUPPORTED = Boolean(process.env.VTE_VERSION) || /mate/i.test(process.env.TERM_PROGRAM || '');
+const KNOWN_SYNC_SUPPORT = Boolean(
+  process.env.KITTY_WINDOW_ID ||
+  process.env.WEZTERM_EXECUTABLE ||
+  process.env.GHOSTTY_RESOURCES_DIR
+);
+
 let frameChunks = [];
 let frameCallbacks = [];
-let frameFlushQueued = false;
+let frameTimer = null;
 
 function flushFrameBuffer() {
-  frameFlushQueued = false;
+  if (frameTimer) {
+    clearTimeout(frameTimer);
+    frameTimer = null;
+  }
   if (!frameChunks.length) return;
   const payload = frameChunks.join('');
   const callbacks = frameCallbacks;
@@ -2627,31 +2634,64 @@ function flushFrameBuffer() {
   });
 }
 
-process.stdout.write = function writeBuffered(chunk, encoding, callback) {
-  if (typeof encoding === 'function') {
-    callback = encoding;
-    encoding = undefined;
-  }
-  frameChunks.push(typeof chunk === 'string'
-    ? chunk
-    : Buffer.from(chunk).toString(encoding || 'utf8'));
-  if (callback) frameCallbacks.push(callback);
-  if (!frameFlushQueued) {
-    frameFlushQueued = true;
-    setImmediate(flushFrameBuffer);
-  }
-  return true;
-};
+let originalStdoutWrite = null;
 
-process.on('exit', () => {
-  flushFrameBuffer();
-});
+function installFrameBuffer() {
+  originalStdoutWrite = process.stdout.write.bind(process.stdout);
+  process.stdout.write = function writeBuffered(chunk, encoding, callback) {
+    if (typeof encoding === 'function') {
+      callback = encoding;
+      encoding = undefined;
+    }
+    frameChunks.push(typeof chunk === 'string'
+      ? chunk
+      : Buffer.from(chunk).toString(encoding || 'utf8'));
+    if (callback) frameCallbacks.push(callback);
+    if (frameTimer === null) {
+      frameTimer = setTimeout(flushFrameBuffer, FRAME_BUFFER_MS);
+    }
+    return true;
+  };
+}
+
+async function detectSyncSupport() {
+  if (VTE_UNSUPPORTED) return false;
+  if (KNOWN_SYNC_SUPPORT) return true;
+  if (!process.stdin.isTTY) return false;
+
+  return new Promise((resolve) => {
+    let settled = false;
+    let timer = null;
+
+    const finish = (supported) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      process.stdin.removeListener('data', onData);
+      resolve(supported);
+    };
+
+    const onData = (chunk) => {
+      const match = chunk.toString('utf8').match(/\x1b\[\?2026;([0-4])\$y/);
+      if (match) finish(match[1] !== '0');
+    };
+
+    process.stdin.setEncoding('utf8');
+    if (typeof process.stdin.setRawMode === 'function') process.stdin.setRawMode(true);
+    process.stdin.on('data', onData);
+    process.stdin.resume();
+    process.stdout.write('\x1b[?2026$p');
+    timer = setTimeout(() => finish(false), 120);
+  });
+}
 
 const columns = process.stdout.columns || 80;
 if (!process.stdout.isTTY) {
   process.stderr.write('Hermes Stage needs a TTY; run it in a terminal, not a pipe.\n');
   process.exit(1);
 }
+const syncSupported = await detectSyncSupport();
+if (!syncSupported) installFrameBuffer();
 // Match the stock TUI: clear the terminal so the banner starts on a fresh
 // blank page instead of immediately below the `hermes stage` command.
 process.stdout.write('\x1b[2J\x1b[H\x1b[3J');
@@ -2660,8 +2700,8 @@ process.stdout.write('Hermes Stage: starting room…\n');
 // Return the cursor to the top: the fixed-height frame is painted from row 1,
 // so writing the pre-render line must not shift it one row down.
 process.stdout.write('\x1b[H');
-process.on('exit', disableMouseTracking);
-process.on('SIGINT', () => { disableMouseTracking(); process.exit(130); });
+process.on('exit', () => { disableMouseTracking(); flushFrameBuffer(); });
+process.on('SIGINT', () => { disableMouseTracking(); flushFrameBuffer(); process.exit(130); });
 enableMouseTracking();
 try {
   render(h(Stage, { columns }));
