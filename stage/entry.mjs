@@ -17,6 +17,7 @@
 import { execFile } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import React from 'react';
 import { render, Box, Text, useApp, useInput, useBoxMetrics } from 'ink';
 import stringWidth from 'string-width';
@@ -49,7 +50,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.50.37';
+const STAGE_VERSION = '0.50.38';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -100,13 +101,13 @@ function saveRoomState(bubbles) {
         && typeof b.text === 'string')
       .slice(-MAX_STATE_MESSAGES);
     const dir = dirname(ROOM_STATE_PATH);
-    mkdirSync(dir, { recursive: true });
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tmp = `${ROOM_STATE_PATH}.tmp`;
     writeFileSync(tmp, JSON.stringify({
       version: 1,
       savedAt: new Date().toISOString(),
       bubbles: clean,
-    }, null, 2));
+    }, null, 2), { mode: 0o600 });
     renameSync(tmp, ROOM_STATE_PATH);
   } catch {
     // Persistence is best-effort; a failed save must never break the room.
@@ -122,21 +123,43 @@ function scheduleRoomStateSave(bubbles) {
   }, 150);
 }
 
-async function connectRaw(home, onEvent, onRequest) {
+async function connectRaw(home, onEvent, onRequest, onClose) {
   const grant = await getGrant(home);
   return new Promise((resolve, reject) => {
     let settleReady;
-    const ready = new Promise((r) => { settleReady = r; });
+    let settleReadyReject;
+    const ready = new Promise((res, rej) => { settleReady = res; settleReadyReject = rej; });
     let readyDone = false;
     let readyPayload = {};
+    let connected = false;
+    let finished = false;
     const ws = new WebSocket(grant.url, grant.protocols);
     const pending = new Map();
     let nextId = 1;
 
+    const close = (err) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(readyTimer);
+      for (const entry of pending.values()) entry.reject(err);
+      pending.clear();
+      if (!readyDone) settleReadyReject(err);
+      if (!connected) { reject(err); return; }
+      try { onClose?.(err); } catch {}
+    };
+    const readyTimer = setTimeout(() => close(new Error('gateway ready timeout')), 30000);
+
     const rpc = (method, params = {}) => new Promise((res, rej) => {
       if (ws.readyState !== 1) return rej(new Error('gateway socket not open'));
       const id = nextId++;
-      pending.set(id, { resolve: res, reject: rej });
+      const timer = setTimeout(() => {
+        pending.delete(id);
+        rej(new Error(`gateway RPC timeout: ${method}`));
+      }, 30000);
+      pending.set(id, {
+        resolve: (value) => { clearTimeout(timer); res(value); },
+        reject: (error) => { clearTimeout(timer); rej(error); },
+      });
       ws.send(JSON.stringify({ jsonrpc: '2.0', id, method, params }));
     });
 
@@ -147,7 +170,12 @@ async function connectRaw(home, onEvent, onRequest) {
       if (msg.method === 'event') {
         const p = msg.params || {};
         if (p.type === 'gateway.ready') {
-          if (!readyDone) { readyDone = true; readyPayload = p.payload || {}; settleReady(); }
+          if (!readyDone) {
+            readyDone = true;
+            readyPayload = p.payload || {};
+            clearTimeout(readyTimer);
+            settleReady();
+          }
           return;
         }
         if (readyDone) onEvent(p);
@@ -164,19 +192,21 @@ async function connectRaw(home, onEvent, onRequest) {
       }
     });
 
-    ws.addEventListener('error', () => reject(new Error('gateway socket error')));
-    ws.addEventListener('close', () => reject(new Error('gateway socket closed')));
+    ws.addEventListener('error', () => close(new Error('gateway socket error')));
+    ws.addEventListener('close', () => close(new Error('gateway socket closed')));
 
     ws.addEventListener('open', async () => {
       if (ws.protocol !== 'hermes-gateway-v1') {
-        return reject(new Error(`bad subprotocol: ${ws.protocol}`));
+        close(new Error(`bad subprotocol: ${ws.protocol}`));
+        return;
       }
       try {
         await ready;
         try { await rpc('client.capabilities', { server_requests: true }); } catch {}
+        connected = true;
         resolve({ ws, rpc, skin: readyPayload.skin || {} });
       } catch (e) {
-        reject(e);
+        close(e);
       }
     });
   });
@@ -248,16 +278,10 @@ function buildTheme(skin) {
     warn: pick('ui_warn', 'status_bar_warn') || '#ffa726',
     error: pick('ui_error', 'status_bar_bad') || '#ef5350',
     tool: pick('ui_tool', 'ui_accent', 'banner_accent') || '#FFBF00',
-    diffAdded: pick('diff_added') || '#dcffdc',
-    diffRemoved: pick('diff_removed') || '#ffdcdc',
-    diffAddedWord: pick('diff_added_word') || '#248a3d',
-    diffRemovedWord: pick('diff_removed_word') || '#cf222e',
     completionBg: pick('completion_menu_bg', 'background') || '#1b1b1b',
     completionCurrentBg: pick('completion_menu_current_bg', 'completion_menu_bg', 'background') || '#3a3a3a',
-    statusFg: pick('status_bar_text', 'ui_text') || '#9e9e9e',
     promptSymbol: String(b.prompt_symbol || '❯').trim() || '❯',
     toolPrefix: String(skin && skin.tool_prefix || '┊').trim() || '┊',
-    brandIcon: String(b.icon || b.glyph || '☤').trim() || '☤',
   };
 }
 
@@ -281,7 +305,7 @@ function isAutomationTurn(payload) {
   return /^\[IMPORTANT:|Background process \S+ completed|^\[ASYNC DELEGATION|^\[System:/.test(text);
 }
 
-function admitDelta(cursor, payload, text) {
+export function admitDelta(cursor, payload, text) {
   const turnId = payload && typeof payload.turn_id === 'string' ? payload.turn_id : '';
   const segment = payload && Number.isInteger(payload.segment) ? payload.segment : null;
   if (!turnId || segment === null) return { cursor, text };
@@ -320,7 +344,7 @@ const STAGE_FEATURES = [
   'Public @name addressing, @everyone/@all, and opt-in peer pull-in.',
   'Bounded whole-room context per member, with each reply posted once.',
   'Concurrent turns for different profiles, with queued messages for a busy profile.',
-  'Per-profile status board: thinking/tool activity, queue state, and unread indicators.',
+  'Focused-profile status board: thinking/tool activity, queue state, and unread indicators.',
   'Profile-lens switching, focus control, and a separate STAGE room row.',
 ];
 
@@ -410,11 +434,11 @@ function graphemes(value) {
 
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 
-function trimTrailingSpaces(text) {
+export function trimTrailingSpaces(text) {
   return String(text || '').split('\n').map((line) => line.replace(/[ \t]+$/, '')).join('\n');
 }
 
-function wrapDisplayLine(line, width) {
+export function wrapDisplayLine(line, width) {
   const chunks = [];
   let current = '';
   let used = 0;
@@ -432,7 +456,7 @@ function wrapDisplayLine(line, width) {
   return chunks;
 }
 
-function fitTail(text, maxLines, width) {
+export function fitTail(text, maxLines, width) {
   const limit = Math.max(1, maxLines);
   const col = Math.max(8, width - 4);
   const lines = [];
@@ -442,10 +466,11 @@ function fitTail(text, maxLines, width) {
     lines.push(...wrapDisplayLine(clean, col));
   }
   if (lines.length <= limit) return lines.join('\n');
-  return `…\n${lines.slice(-(limit - 1)).join('\n')}`;
+  const tail = limit > 1 ? lines.slice(-(limit - 1)) : lines.slice(-1);
+  return `…\n${tail.join('\n')}`;
 }
 
-function fitText(s, width) {
+export function fitText(s, width) {
   const text = String(s);
   const max = Math.max(1, width);
   if (stringWidth(text) <= max) return text;
@@ -501,9 +526,10 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
     let glyph = '';
     let color = t.muted;
     let dim = false;
-    if (st === 'error') {
+    if (st === 'error' || st === 'not-ready' || st === 'offline') {
       glyph = '●';
       color = t.error;
+      dim = st === 'offline';
     } else if (count > 0) {
       glyph = '●';
       color = '#5aa9ff';
@@ -511,7 +537,7 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
       glyph = '⏸';
       color = t.muted;
       dim = true;
-    } else if (st === 'not-ready' || st === 'offline' || st === 'connecting') {
+    } else if (st === 'connecting') {
       // Roster is known up front: unmounted profiles stay gray with a spinner.
       glyph = `${spinner}  `;
       color = t.muted;
@@ -628,6 +654,38 @@ function compactPreview(value, max = 64) {
   return String(value || '').replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
+function roomLine(entry) {
+  const name = entry.speaker === 'You' ? 'Architect' : entry.speaker;
+  return `${name}: ${entry.text}`;
+}
+
+export function boundedRoomDelta(log, from) {
+  const start = Math.max(0, from || 0);
+  let entries = log.slice(start).filter((b) => !b.private);
+  let omitted = 0;
+  if (entries.length > MAX_DELTA_MESSAGES) {
+    omitted += entries.length - MAX_DELTA_MESSAGES;
+    entries = entries.slice(-MAX_DELTA_MESSAGES);
+  }
+  const lines = entries.map((b) => {
+    let line = roomLine(b);
+    if (line.length > OVERSIZED_MESSAGE_CHARS) {
+      line = `${line.slice(0, OVERSIZED_MESSAGE_CHARS)} … [truncated]`;
+    }
+    return line;
+  });
+  let joined = lines.join('\n');
+  while (joined.length > MAX_DELTA_CHARS && lines.length > 1) {
+    lines.shift();
+    omitted += 1;
+    joined = lines.join('\n');
+  }
+  if (joined.length > MAX_DELTA_CHARS) {
+    joined = `${joined.slice(0, MAX_DELTA_CHARS)} … [truncated]`;
+  }
+  return { text: joined, omitted };
+}
+
 function formatToolCall(name, context = '') {
   const label = toolTrailLabel(name);
   const preview = compactPreview(context, 64);
@@ -693,7 +751,7 @@ function mentionsMember(name, text) {
   return new RegExp(`(?:^|[^A-Za-z0-9_])@${escaped}\\b`, 'i').test(String(text || ''));
 }
 
-function displayPath(path, cwd) {
+export function displayPath(path, cwd) {
   let p = String(path || '').trim();
   if (p.startsWith('//')) p = p.slice(1);
   if (!p || !p.startsWith('/')) return p;
@@ -731,7 +789,7 @@ function diffFileLabel(line, cwd) {
   return oldPath === newPath ? newPath : `${oldPath} → ${newPath}`;
 }
 
-function splitDiffFences(text) {
+export function splitDiffFences(text) {
   const src = String(text || '');
   const re = /```[ \t]*diff[ \t]*\r?\n([\s\S]*?)```/gi;
   re.lastIndex = 0;
@@ -1000,7 +1058,8 @@ function useRoom(viewRef) {
     setQueues(next);
   }, []);
 
-  const streaming = Object.values(statuses).some((s) => s && s !== 'ready' && s !== 'error')
+  const streaming = Object.values(statuses).some((s) =>
+    s && s !== 'ready' && s !== 'error' && s !== 'not-ready' && s !== 'offline')
     || Object.values(tools).some((t) => t && (t.draftName || Object.keys(t.active || {}).length > 0))
     || Object.keys(thinking).length > 0;
 
@@ -1030,45 +1089,13 @@ function useRoom(viewRef) {
     return () => clearInterval(id);
   }, [streaming]);
 
-  function roomLine(entry) {
-    const name = entry.speaker === 'You' ? 'Architect' : entry.speaker;
-    return `${name}: ${entry.text}`;
-  }
-
-  function boundedRoomDelta(log, from) {
-    const start = Math.max(0, from || 0);
-    let entries = log.slice(start).filter((b) => !b.private);
-    let omitted = 0;
-    if (entries.length > MAX_DELTA_MESSAGES) {
-      omitted += entries.length - MAX_DELTA_MESSAGES;
-      entries = entries.slice(-MAX_DELTA_MESSAGES);
-    }
-    const lines = entries.map((b) => {
-      let line = roomLine(b);
-      if (line.length > OVERSIZED_MESSAGE_CHARS) {
-        line = `${line.slice(0, OVERSIZED_MESSAGE_CHARS)} … [truncated]`;
-      }
-      return line;
-    });
-    let joined = lines.join('\n');
-    while (joined.length > MAX_DELTA_CHARS && lines.length > 1) {
-      lines.shift();
-      omitted += 1;
-      joined = lines.join('\n');
-    }
-    if (joined.length > MAX_DELTA_CHARS) {
-      joined = `${joined.slice(0, MAX_DELTA_CHARS)} … [truncated]`;
-    }
-    return { text: joined, omitted };
-  }
-
   function peerExample(bot) {
-    const peer = clientsRef.current.find((c) => c !== bot && c.name);
+    const peer = clientsRef.current.find((c) => c !== bot && c.name && !c.offline);
     return String((peer && peer.name) || 'Name').split(' · ')[0];
   }
 
   function buildMemberPrompt(bot, log) {
-    const names = clientsRef.current.map((c) => c.name).join(', ');
+    const names = clientsRef.current.filter((c) => !c.offline).map((c) => c.name).join(', ');
     const { text: delta, omitted } = boundedRoomDelta(log, bot.seenSeq || 0);
     return `[Hermes Stage group room: ${names}. You are ${bot.name}. ` +
       'Reply to the room as yourself. Do not use message_agent. ' +
@@ -1084,7 +1111,7 @@ function useRoom(viewRef) {
   }
 
   function buildQueuedPrompt(bot, text) {
-    const names = clientsRef.current.map((c) => c.name).join(', ');
+    const names = clientsRef.current.filter((c) => !c.offline).map((c) => c.name).join(', ');
     const { text: delta, omitted } = boundedRoomDelta(bubblesRef.current, bot.seenSeq || 0);
     return `[Hermes Stage group room: ${names}. You are ${bot.name}. ` +
       'Reply to the room as yourself. Do not use message_agent. ' +
@@ -1100,6 +1127,14 @@ function useRoom(viewRef) {
   }
 
   async function promptMember(bot, overrideText) {
+    if (bot.offline) {
+      pendingRef.current.set(bot.name, Math.max(0, (pendingRef.current.get(bot.name) || 1) - 1));
+      syncPending();
+      autoTurnRef.current.delete(bot.name);
+      setNotice(`${bot.name} is offline`);
+      setStatuses((s) => ({ ...s, [bot.name]: 'offline' }));
+      return false;
+    }
     try {
       const text = overrideText != null ? overrideText : buildMemberPrompt(bot, bubblesRef.current);
       // The gateway admits this as a queued submission and runs it FIFO behind
@@ -1121,7 +1156,7 @@ function useRoom(viewRef) {
         d.remaining = Math.max(0, d.remaining - 1);
       }
       setNotice(`${bot.name}: ${e.message}`);
-      setStatuses((s) => ({ ...s, [bot.name]: 'ready' }));
+      setStatuses((s) => ({ ...s, [bot.name]: bot.offline ? 'offline' : 'ready' }));
       if (d.active && d.remaining === 0) advanceDiscussion();
       return false;
     }
@@ -1182,6 +1217,7 @@ function useRoom(viewRef) {
   // Public, fire-and-forget address: the named member takes a turn in the shared
   // room. The reply is posted to the log; nothing is fed back to the asker.
   function triggerAddressed(peer) {
+    if (!peer || peer.offline) return;
     if (autoTurnRef.current.has(peer.name)) return;
     autoTurnRef.current.add(peer.name);
     turnMetaRef.current.set(peer.name, { asksPeer: false });
@@ -1231,6 +1267,7 @@ function useRoom(viewRef) {
   function startDiscussion(targets) {
     const names = targets.map((bot) => bot.name);
     roundRef.current = {
+      id: newId('round'),
       active: names.length > 0,
       round: 0,
       current: new Set(names),
@@ -1262,6 +1299,7 @@ function useRoom(viewRef) {
         if (turnId && streamTurnRef.current.get(bot.name) === turnId) return;
         const id = newId('b');
         const auto = autoTurnRef.current.has(bot.name);
+        bot.discId = roundRef.current.active ? roundRef.current.id : null;
         activeRef.current.set(bot.name, id);
         if (turnId) streamTurnRef.current.set(bot.name, turnId);
         segmentRef.current.delete(bot.name);
@@ -1399,7 +1437,7 @@ function useRoom(viewRef) {
         } catch {}
         autoTurnRef.current.delete(bot.name);
         const d = roundRef.current;
-        if (d.active && d.current.has(bot.name)) {
+        if (d.active && d.current.has(bot.name) && bot.discId === d.id) {
           d.current.delete(bot.name);
           d.remaining = Math.max(0, d.remaining - 1);
           if (text && !pass) {
@@ -1537,11 +1575,58 @@ function useRoom(viewRef) {
 
     const makeRequest = (holder) => (msg) => handleRequest(holder.bot, msg);
 
+    const handleDisconnect = (bot, err) => {
+      if (dead || !bot) return;
+      bot.offline = true;
+      const activeId = activeRef.current.get(bot.name);
+      if (activeId) setLog((prev) => prev.filter((b) => b.id !== activeId));
+      activeRef.current.delete(bot.name);
+      streamTurnRef.current.delete(bot.name);
+      segmentRef.current.delete(bot.name);
+      autoTurnRef.current.delete(bot.name);
+      turnMetaRef.current.delete(bot.name);
+      setTools((prev) => {
+        if (!prev[bot.name]) return prev;
+        const next = { ...prev };
+        delete next[bot.name];
+        return next;
+      });
+      setThinking((prev) => {
+        if (!prev[bot.name]) return prev;
+        const next = { ...prev };
+        delete next[bot.name];
+        return next;
+      });
+      setLiveMetrics((prev) => {
+        const next = { ...prev };
+        delete next[bot.name];
+        return next;
+      });
+      pendingRef.current.set(bot.name, 0);
+      syncPending();
+      queueRef.current.delete(bot.name);
+      syncQueues();
+      setRoster((prev) => prev.map((r) =>
+        r.profile === bot.profile ? { ...r, connected: false } : r));
+      setStatuses((s) => ({ ...s, [bot.name]: 'offline' }));
+      setNotice(`${bot.name}: ${err.message}`);
+      setApprovals((prev) => prev.filter((a) => a.bot !== bot));
+
+      const d = roundRef.current;
+      if (d.active && d.current.has(bot.name)) {
+        d.current.delete(bot.name);
+        d.remaining = Math.max(0, d.remaining - 1);
+        if (d.remaining === 0) advanceDiscussion();
+      }
+    };
+
+    const makeClose = (holder) => (err) => handleDisconnect(holder.bot, err);
+
     (async () => {
       try {
         // Default connection first: it gives us the roster and doubles as the primary bot.
         const holder = { bot: null };
-        const raw = await connectRaw(DEFAULT_HOME, makeHandler(holder), makeRequest(holder));
+        const raw = await connectRaw(DEFAULT_HOME, makeHandler(holder), makeRequest(holder), makeClose(holder));
         const defaultTheme = buildTheme(raw.skin);
         const defaultBot = { ...raw, name: '', color: defaultTheme.label, borderColor: defaultTheme.bubbleBorder || defaultTheme.border, profile: '', sessionId: null, preambled: false, primary: true, seenSeq: 0, icon: skinIcon(raw.skin) };
         holder.bot = defaultBot;
@@ -1645,7 +1730,7 @@ function useRoom(viewRef) {
         const settled = await Promise.allSettled(otherRows.map(async (p, index) => {
           const h2 = { bot: null };
           const home = p.path || `${DEFAULT_HOME}/profiles/${p.name}`;
-          const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2));
+          const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2), makeClose(h2));
           const botTheme = buildTheme(raw2.skin);
           const name = displayName(p, raw2.skin, defaultAgent);
           const bot = {
@@ -1794,12 +1879,18 @@ function useRoom(viewRef) {
       if (!body) body = 'Hello.';
     }
 
+    targets = targets.filter((bot) => bot && !bot.offline);
+    if (!targets.length) {
+      setNotice('No connected room member available.');
+      return false;
+    }
+
     const busyTargets = targets.filter((b) => pendingOf(b.name) > 0);
     const freeTargets = targets.filter((b) => pendingOf(b.name) <= 0);
 
     const targetNames = new Set(targets.map((b) => b.name));
     const peerNames = clientsRef.current
-      .filter((peer) => !targetNames.has(peer.name))
+      .filter((peer) => !targetNames.has(peer.name) && !peer.offline)
       .map((peer) => peer.name.split(' · ')[0]);
     const userAsksPeer = peerNames.some((name) => {
       if (!name) return false;
@@ -1849,17 +1940,6 @@ function Stage({ columns }) {
   const lastLensRef = React.useRef('');
   viewRef.current = view;
   const room = useRoom(viewRef);
-  const initialViewSetRef = React.useRef(false);
-  React.useEffect(() => {
-    if (!room.online || initialViewSetRef.current) return;
-    const primary = room.bots.find((b) => b.primary) || room.bots[0];
-    if (!primary) return;
-    initialViewSetRef.current = true;
-    if (viewRef.current === 'stage') {
-      setView(primary.name);
-      viewRef.current = primary.name;
-    }
-  }, [room.online, room.bots]);
   const [composer, setComposer] = React.useState('');
   const [composerCursor, setComposerCursor] = React.useState(0);
 
@@ -1897,11 +1977,12 @@ function Stage({ columns }) {
   const [scrollUp, setScrollUp] = React.useState(0);
   const contentRef = React.useRef(null);
   const viewportRef = React.useRef(null);
+  const scrollMaxRef = React.useRef(0);
   const contentMetrics = useBoxMetrics(contentRef);
   const viewportMetrics = useBoxMetrics(viewportRef);
   const scrollBy = React.useCallback((delta) => {
-    setScrollUp((s) => Math.max(0, Math.min(room.bubbles.length - 1, s + delta)));
-  }, [room.bubbles.length]);
+    setScrollUp((s) => Math.max(0, Math.min(scrollMaxRef.current, s + delta)));
+  }, []);
 
   React.useEffect(() => {
     const onData = (chunk) => {
@@ -2314,30 +2395,9 @@ function Stage({ columns }) {
     ? 'Type your message to the room here. Directional Key or Tab to switch'
     : `Type your message to ${focusShort} here. Directional Key or Tab to switch`;
 
-  const focusedStatus = room.statuses[focusedName] || 'ready';
-  const busy = focusedStatus.startsWith('streaming');
-
-  const activeBots = bots.filter((b) => {
-    const s = room.statuses[b.name] || 'ready';
-    return s !== 'ready' && s !== 'error';
-  });
-  // Global board: the default profile's row is always first, and when a lens is
-  // selected that profile's row is guaranteed directly below it — even if idle.
   const statusAnchor = primary;
   const statusAnchorName = statusAnchor ? statusAnchor.name : focusedName;
-  const stageView = view === 'stage';
-  const selected = (!stageView && focusedName !== statusAnchorName)
-    ? bots.find((b) => b.name === focusedName)
-    : null;
-  const ordered = [];
-  if (statusAnchor) ordered.push(statusAnchor);
-  if (selected && selected.name !== statusAnchorName) ordered.push(selected);
-  for (const b of activeBots) {
-    if (!ordered.some((x) => x.name === b.name)) ordered.push(b);
-  }
-  const statusBots = focused ? [focused] : ordered.slice(0, 1);
-  const statusTotal = statusBots.length;
-  const statusExtra = 0;
+  const statusBots = focused ? [focused] : [];
   const statusRows = statusBots.map((b) => {
     const queuedCount = (room.queues[b.name] || 0) + Math.max(0, (room.pending[b.name] || 0) - 1);
     const parts = statusParts(b.name, room.runtimes[b.name], room.statuses[b.name] || 'ready', t, room.liveMetrics[b.name], room.tick, columns, room.tools[b.name], room.unread[b.name] || 0, room.thinking[b.name], queuedCount);
@@ -2363,7 +2423,6 @@ function Stage({ columns }) {
     const parts = Array.isArray(b.parts) && b.parts.length
       ? b.parts
       : [{ kind: 'text', text: displayText == null ? b.text : displayText }];
-    const hasText = parts.some((part) => part.kind === 'text' && String(part.text || '').trim());
     const hasDiff = parts.some((part) => part.kind === 'diff');
     const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
     const dots = '.'.repeat(1 + (room.tick % 3));
@@ -2442,6 +2501,7 @@ function Stage({ columns }) {
   const measuredViewportHeight = viewportMetrics.clientHeight || viewportHeight;
   const contentViewportHeight = viewportHeight;
   const maxScroll = Math.max(0, measuredContentHeight - measuredViewportHeight);
+  scrollMaxRef.current = maxScroll;
   const scrollLine = Math.min(scrollUp, maxScroll);
   const contentOffsetY = maxScroll - scrollLine;
   const hiddenNewer = scrollLine;
@@ -2464,9 +2524,7 @@ function Stage({ columns }) {
       row.activity ? h(Text, { color: row.activityColor }, ` · ${row.activity}`) : null,
       row.thinkingLabel ? h(Text, { color: t.muted }, `  ${row.thinkingLabel}`) : null,
       row.toolLabel ? h(Text, { color: t.tool || t.accent }, `  ${row.toolLabel}`) : null,
-      row.queuedLabel ? h(Text, { color: t.muted }, `  ${row.queuedLabel}`) : null)),
-    statusExtra ? h(Text, { color: t.muted, dimColor: true },
-      `+${statusExtra} more working`) : null);
+      row.queuedLabel ? h(Text, { color: t.muted }, `  ${row.queuedLabel}`) : null)));
 
   return h(Box, { flexDirection: 'column', paddingX: 1, height: rows },
     h(Box, { flexDirection: 'column', flexShrink: 0 },
@@ -2606,28 +2664,34 @@ function disableMouseTracking() {
 }
 
 
-const columns = process.stdout.columns || 80;
-if (!process.stdout.isTTY) {
-  process.stderr.write('Hermes Stage needs a TTY; run it in a terminal, not a pipe.\n');
-  process.exit(1);
+function main() {
+  const columns = process.stdout.columns || 80;
+  if (!process.stdout.isTTY) {
+    process.stderr.write('Hermes Stage needs a TTY; run it in a terminal, not a pipe.\n');
+    process.exit(1);
+  }
+  // Clear the terminal so the banner starts on a fresh
+  // blank page instead of immediately below the `hermes stage` command.
+  process.stdout.write('\x1b[2J\x1b[H\x1b[3J');
+  // Visible during gateway bring-up: a cleared screen with no line looks hung.
+  process.stdout.write('Hermes Stage: starting room…\n');
+  // Return the cursor to the top: the fixed-height frame is painted from row 1,
+  // so writing the pre-render line must not shift it one row down.
+  process.stdout.write('\x1b[H');
+  process.on('exit', disableMouseTracking);
+  process.on('SIGINT', () => { disableMouseTracking(); process.exit(130); });
+  enableMouseTracking();
+  try {
+    render(h(Stage, { columns }), {
+      alternateScreen: true,
+      incrementalRendering: true,
+    });
+  } catch (e) {
+    process.stderr.write(`Hermes Stage failed to render: ${e && e.message ? e.message : e}\n`);
+    process.exit(1);
+  }
 }
-// Clear the terminal so the banner starts on a fresh
-// blank page instead of immediately below the `hermes stage` command.
-process.stdout.write('\x1b[2J\x1b[H\x1b[3J');
-// Visible during gateway bring-up: a cleared screen with no line looks hung.
-process.stdout.write('Hermes Stage: starting room…\n');
-// Return the cursor to the top: the fixed-height frame is painted from row 1,
-// so writing the pre-render line must not shift it one row down.
-process.stdout.write('\x1b[H');
-process.on('exit', disableMouseTracking);
-process.on('SIGINT', () => { disableMouseTracking(); process.exit(130); });
-enableMouseTracking();
-try {
-  render(h(Stage, { columns }), {
-    alternateScreen: true,
-    incrementalRendering: true,
-  });
-} catch (e) {
-  process.stderr.write(`Hermes Stage failed to render: ${e && e.message ? e.message : e}\n`);
-  process.exit(1);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main();
 }

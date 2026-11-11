@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -103,7 +104,25 @@ def _handler(args) -> int:
 
     node = shutil.which("node")
     if not node:
-        print("Hermes Stage: `node` not found on PATH (Node 20+ required).", file=sys.stderr)
+        print("Hermes Stage: `node` not found on PATH (Node 22+ required).", file=sys.stderr)
+        return 2
+    try:
+        probe = subprocess.run(
+            [node, "--version"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        version = probe.stdout.strip()
+        major = int(version.lstrip("v").split(".")[0])
+    except Exception:
+        print("Hermes Stage: could not determine the Node version.", file=sys.stderr)
+        return 2
+    if major < 22:
+        print(
+            f"Hermes Stage: Node 22+ required (found {version or 'unknown'}).",
+            file=sys.stderr,
+        )
         return 2
 
     if not (stage_dir / "node_modules" / "ink").exists():

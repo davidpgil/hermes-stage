@@ -5,14 +5,14 @@ Hermes Stage is a self-contained terminal-based multi-profile TUI launched over 
 `hermes stage` launches a multi-profile terminal room over Hermes' local gateway. It does
 not modify Hermes core, and the stock `hermes --tui` continues to work normally.
 
-Current version: **0.50.37**.
+Current version: **0.50.38**.
 
 ## Requirements
 
-- Hermes Agent **v0.22.0+** with a local gateway runtime that exposes the `tui` session source.
-  Tested on Hermes v0.22.7.
-- **Node 20+** on PATH. Tested on Node 26.
-- Stage's JS dependencies (`ink`, `react`) are installed once with npm.
+- Hermes Agent **v0.23.1+** with a local gateway runtime that exposes the `tui` session source.
+  Tested on Hermes v0.23.1.
+- **Node 22+** on PATH. Tested on Node 26.
+- Stage's JS dependencies (`ink`, `react`, `string-width`) are installed once with npm.
 
 ## Install
 
