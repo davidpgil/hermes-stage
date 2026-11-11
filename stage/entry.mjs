@@ -19,7 +19,7 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import React from 'react';
-import { render, Box, Text, useApp, useInput, useBoxMetrics } from 'ink';
+import { render, Box, Text, useApp, useInput, useBoxMetrics, useWindowSize } from 'ink';
 import stringWidth from 'string-width';
 
 const h = React.createElement;
@@ -509,7 +509,6 @@ function StagePanelBar({ focusedName, total, view, t, columns }) {
 }
 
 function tabLabel(item) {
-  if (item.separator) return item.label;
   return `${item.name}${item.glyph ? ` ${item.glyph}` : ''}`;
 }
 
@@ -519,10 +518,10 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
   const [scroll, setScroll] = React.useState(0);
   const items = [];
 
-  const addTab = (item, key, active, isGroup = false, target = items) => {
+  const addTab = (item, key, active, target = items) => {
     const short = `${item.primary ? '*' : ''}${fitText(String(item.name).split(' · ')[0], 11)}`;
-    const st = isGroup ? 'ready' : (statuses[item.name] || (item.connected ? 'ready' : 'connecting'));
-    const count = isGroup ? 0 : (unread[item.name] || 0);
+    const st = statuses[item.name] || (item.connected ? 'ready' : 'connecting');
+    const count = unread[item.name] || 0;
     let glyph = '';
     let color = t.muted;
     let dim = false;
@@ -554,7 +553,6 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
       active,
       color,
       dim,
-      isGroup,
     });
   };
 
@@ -1933,8 +1931,9 @@ function useRoom(viewRef) {
   return { bubbles, statuses, notice, setNotice, tick, online, submit, approvals, respond, runtimes, liveMetrics, focusName, cycleFocus, setFocus, roster, theme, bots: botList, tools, thinking, unread, clearUnread, queues, pending };
 }
 
-function Stage({ columns }) {
+function Stage() {
   const app = useApp();
+  const { columns, rows } = useWindowSize();
   const [view, setView] = React.useState('stage');
   const viewRef = React.useRef('stage');
   const lastLensRef = React.useRef('');
@@ -2373,7 +2372,6 @@ function Stage({ columns }) {
     connected: !!r.connected,
   }));
   const t = room.theme || buildTheme({});
-  const rows = process.stdout.rows || 40;
   if (!room.online) {
     // The default profile is the only profile the first paint waits for; show the banner instead of a blank page.
     return h(BootFrame, {
@@ -2665,7 +2663,6 @@ function disableMouseTracking() {
 
 
 function main() {
-  const columns = process.stdout.columns || 80;
   if (!process.stdout.isTTY) {
     process.stderr.write('Hermes Stage needs a TTY; run it in a terminal, not a pipe.\n');
     process.exit(1);
@@ -2682,7 +2679,7 @@ function main() {
   process.on('SIGINT', () => { disableMouseTracking(); process.exit(130); });
   enableMouseTracking();
   try {
-    render(h(Stage, { columns }), {
+    render(h(Stage), {
       alternateScreen: true,
       incrementalRendering: true,
     });
