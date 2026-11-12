@@ -871,18 +871,23 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   const lead = `🔧 ${call}`;
   const header = `${lead}${duration}${mark}`;
   const children = [
-    h(Text, { key: `tool-${partIndex}-header`, color: t.label, bold: true, wrap: 'truncate-end' }, header),
+    h(Text, {
+      key: `tool-${partIndex}-header`,
+      color: t.muted,
+      italic: true,
+      wrap: 'truncate-end',
+    }, header),
   ];
   if (summary) {
     children.push(h(Text, {
       key: `tool-${partIndex}-summary`,
-      color: status === 'error' || status === 'timed_out' ? t.error : t.muted,
+      color: t.muted,
       wrap: 'truncate-end',
-      dimColor: status === 'active' || status === 'waiting_approval',
+      dimColor: true,
     }, summary));
   }
   if (part.diff) children.push(renderDiffPart(part.diff, t, partIndex, '│ ', cwd));
-  return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column', marginTop: 1 }, children);
+  return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column' }, children);
 }
 
 const APPROVAL_LABELS = {
