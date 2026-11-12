@@ -2682,14 +2682,15 @@ function Stage() {
   const active = lens.filter((b) => !b.done);
 
   // Fixed chrome: one version row, one scroll-hint row, the maximum status-board
-  // rows, three composer rows (rule/text/rule), and two tab rows (profiles + STAGE).
+  // rows, three composer rows (rule/text/rule), and three bottom rows (STAGE,
+  // double separator, profile tabs).
   // Keeping the status reserve fixed prevents the transcript viewport from
   // resizing when a lens shows fewer or more status rows.
   const panelRows = 1;
   const scrollHintRows = 1;
   const composerRows = 3;
-  const tabRows = 2;
   const maxStatusRows = 1;
+  const tabRows = 3;
   const approvalRows = room.approvals.length ? Math.min(14, approvalCardRows(room.approvals[0], columns)) : 0;
   const viewportHeight = Math.max(4, rows - (panelRows + scrollHintRows + maxStatusRows + composerRows + tabRows + approvalRows));
 
@@ -2852,6 +2853,12 @@ function Stage() {
         composer ? h(Text, { color: t.text }, composer.slice(composerCursor + 1)) : null),
       h(Text, { color: t.border, dimColor: true }, composerRule)),
     statusBar,
+    h(Text, {
+      key: 'tabs-rule',
+      color: t.border,
+      dimColor: true,
+      wrap: 'truncate-end',
+    }, '═'.repeat(Math.max(20, columns - 2))),
     h(StageTabs, { tabs, view, unread: room.unread, statuses: room.statuses, t, columns, tick: room.tick }));
 }
 
