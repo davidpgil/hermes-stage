@@ -62,29 +62,27 @@ BRANCH="catalog/hermes-stage-${VERSION}-${SHA:0:8}"
 
 if [ "$MODE" = "dry-run" ]; then
   echo "Would sync $FORK from $UPSTREAM."
-  echo "Would create $BRANCH with sha $SHA and version $VERSION."
-  echo "Would open PR against $UPSTREAM main."
+  echo "Would create/update the release branch with sha $SHA and version $VERSION."
+  echo "Would open or refresh the catalog PR against $UPSTREAM main."
   exit 0
 fi
 
-EXISTING="$(gh pr list --repo "$UPSTREAM" --state open --search "hermes-stage $VERSION" --json url --jq '.[0].url // ""')"
-if [ -n "$EXISTING" ]; then
-  echo "$EXISTING"
-  exit 0
+EXISTING_URL="$(gh pr list --repo "$UPSTREAM" --state open --author @me --search "hermes-stage $VERSION" --json url --jq '.[0].url // ""')"
+if [ -n "$EXISTING_URL" ]; then
+  BRANCH="$(gh pr view "$EXISTING_URL" --repo "$UPSTREAM" --json headRefName --jq '.headRefName')"
 fi
 
 gh repo sync "$FORK" --source "$UPSTREAM" --branch main >/dev/null
 
 FORK_MAIN_SHA="$(gh api "repos/$FORK/commits/main" --jq '.sha')"
-FILE_SHA="$(gh api "repos/$FORK/contents/plugin-catalog/hermes-stage.yaml" --jq '.sha')"
 
 if ! gh api "repos/$FORK/git/ref/heads/$BRANCH" >/dev/null 2>&1; then
   gh api -X POST "repos/$FORK/git/refs" \
     -f ref="refs/heads/$BRANCH" \
     -f sha="$FORK_MAIN_SHA" >/dev/null
-else
-  FILE_SHA="$(gh api "repos/$FORK/contents/plugin-catalog/hermes-stage.yaml?ref=$BRANCH" --jq '.sha')"
 fi
+
+FILE_SHA="$(gh api "repos/$FORK/contents/plugin-catalog/hermes-stage.yaml?ref=$BRANCH" --jq '.sha')"
 
 python3 - "$work/catalog.yaml" "$SHA" "$VERSION" <<'PY'
 from pathlib import Path
@@ -105,12 +103,14 @@ gh api -X PUT "repos/$FORK/contents/plugin-catalog/hermes-stage.yaml" \
   -f sha="$FILE_SHA" \
   -f branch="$BRANCH" >/dev/null
 
-EXISTING="$(gh pr list --repo "$UPSTREAM" --state open --search "hermes-stage $VERSION" --json url --jq '.[0].url // ""')"
-if [ -n "$EXISTING" ]; then
-  echo "$EXISTING"
+BODY="Bump Hermes Stage from the previous catalog pin to $VERSION at $SHA. The plugin release includes the approval-settlement fix, skin-driven pass acknowledgements, blue mention styling, gray tool-call styling, new-user docs, and the sanitization/docs pre-commit hook."
+
+if [ -n "$EXISTING_URL" ]; then
+  gh pr edit "$EXISTING_URL" --body "$BODY" >/dev/null
+  echo "$EXISTING_URL"
   exit 0
 fi
 
 gh pr create --repo "$UPSTREAM" --base main --head "${FORK%/*}:$BRANCH" \
   --title "chore(catalog): bump hermes-stage to $VERSION" \
-  --body "Bump Hermes Stage from the previous catalog pin to $VERSION at $SHA. The plugin release includes the approval-settlement fix, skin-driven pass acknowledgements, blue mention styling, gray tool-call styling, new-user docs, and the sanitization/docs pre-commit hook."
+  --body "$BODY"
