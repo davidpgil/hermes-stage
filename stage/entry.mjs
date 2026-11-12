@@ -891,7 +891,17 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
 }
 
 export function isEnterKey(input, key) {
-  return Boolean(key && key.return) || input === '\r' || input === '\n';
+  // Composer submit treats any CR/LF in the chunk as Enter. The card must do
+  // the same: some terminals deliver one read of CR+LF, which is not key.return
+  // and is not a single CR or LF, so the approval branch used to swallow it.
+  if (key && key.return) return true;
+  const raw = String(input || '');
+  return raw.length > 0 && /^[\r\n]+$/.test(raw);
+}
+
+export function isEscapeKey(input, key) {
+  if (key && key.escape) return true;
+  return String(input || '') === '\u001b';
 }
 
 const APPROVAL_LABELS = {
@@ -1357,6 +1367,7 @@ function useRoom(viewRef) {
       if (!bot || !payload) return;
       const requestId = String(payload.request_id || payload.prompt_id || serverRequestId || '');
       if (!requestId) return;
+      const promptId = String(payload.prompt_id || '');
       const allowed = new Set(['once', 'session', 'always', 'deny']);
       let choices = Array.isArray(payload.choices)
         ? payload.choices.filter((choice) => allowed.has(String(choice)))
@@ -1371,6 +1382,7 @@ function useRoom(viewRef) {
       const entry = {
         bot,
         request_id: requestId,
+        prompt_id: promptId,
         server_request_id: source === 'server' ? serverRequestId : null,
         source,
         session_id: bot.sessionId,
@@ -1943,7 +1955,16 @@ function useRoom(viewRef) {
           id: first.server_request_id,
           result: { choice },
         }));
+      } else if (first.source === 'event' && first.prompt_id && Number.isFinite(first.execution_generation)) {
+        // Canonical shared control: generation-bound, answered with prompt_id.
+        await first.bot.rpc('approval.respond', {
+          session_id: first.bot.sessionId,
+          prompt_id: first.prompt_id,
+          execution_generation: first.execution_generation,
+          choice,
+        });
       } else {
+        // Legacy/pending approval queue: answered by the gateway request id.
         await first.bot.rpc('approval.respond', {
           session_id: first.bot.sessionId,
           request_id: first.request_id,
@@ -2371,7 +2392,7 @@ function Stage() {
         ? approval.choices
         : ['once', 'deny'];
       const selected = Math.max(0, Math.min(approvalSel, choices.length - 1));
-      if (key.escape) { room.respond('deny'); return; }
+      if (isEscapeKey(input, key)) { room.respond('deny'); return; }
       if (key.upArrow) {
         setApprovalSel((i) => Math.max(0, i - 1));
         return;
