@@ -890,6 +890,10 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column' }, children);
 }
 
+export function isEnterKey(input, key) {
+  return Boolean(key && key.return) || input === '\r' || input === '\n';
+}
+
 const APPROVAL_LABELS = {
   once: 'Approve once',
   session: 'Approve for session',
@@ -2377,7 +2381,7 @@ function Stage() {
         setApprovalSel((i) => Math.min(choices.length - 1, i + 1));
         return;
       }
-      if (key.return) {
+      if (isEnterKey(input, key)) {
         room.respond(choices[selected] || 'deny');
         return;
       }
