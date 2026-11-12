@@ -1831,16 +1831,17 @@ function useRoom(viewRef) {
           });
           bot.sessionId = snap.session_id;
           setStatuses((s) => ({ ...s, [bot.name]: 'ready' }));
-          // Replay approvals that were already waiting when this session attached.
-          try {
-            const pendingApprovals = await bot.rpc('approval.pending', { session_id: bot.sessionId });
-            for (const approval of pendingApprovals.approvals || []) {
-              handleApprovalRequest(bot, approval, 'pending');
-            }
-          } catch {}
-          // Capabilities and the runtime snapshot do not block the first paint.
+          // Do not block the room on approval replay or capabilities; those
+          // are background hydration steps. Awaiting them here delayed the
+          // profile's connected state when the gateway was slow.
           (async () => {
             try { await bot.rpc('client.capabilities', { server_requests: true }); } catch {}
+            try {
+              const pendingApprovals = await bot.rpc('approval.pending', { session_id: bot.sessionId });
+              for (const approval of pendingApprovals.approvals || []) {
+                handleApprovalRequest(bot, approval, 'pending');
+              }
+            } catch {}
             try {
               const info = await bot.rpc('session.info', { session_id: bot.sessionId });
               if (!dead) setRuntimeFor(bot, info);
