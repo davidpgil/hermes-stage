@@ -760,24 +760,6 @@ export function displayPath(path, cwd) {
   return p;
 }
 
-// Keep the filename visible: truncate from the head, not the tail.
-function fitPathTail(path, width) {
-  const text = String(path || '');
-  const max = Math.max(8, width);
-  if (stringWidth(text) <= max) return text;
-  const limit = Math.max(4, max - 1);
-  const glyphs = graphemes(text);
-  let out = '';
-  let used = 0;
-  for (let i = glyphs.length - 1; i >= 0; i -= 1) {
-    const w = stringWidth(glyphs[i]);
-    if (used + w > limit) break;
-    out = glyphs[i] + out;
-    used += w;
-  }
-  return `…${out}`;
-}
-
 // Stock collapses the `a/<path> → b/<path>` header into one path line.
 function diffFileLabel(line, cwd) {
   const match = DIFF_FILE_RE.exec(String(line || ''));
@@ -824,15 +806,26 @@ function appendTextPart(parts, delta) {
   return next;
 }
 
-function appendToolPart(bubble, tool) {
+export function upsertToolPart(bubble, tool) {
   const parts = Array.isArray(bubble.parts) ? bubble.parts.slice() : [];
-  const last = parts[parts.length - 1];
-  if (last && last.kind === 'tool' &&
-      last.name === tool.name && last.context === tool.context && last.diff === tool.diff) {
-    return bubble;
+  const id = String(tool.tool_id || tool.id || '');
+  let index = -1;
+  if (id) {
+    index = parts.findIndex((part) => part.kind === 'tool'
+      && String(part.tool_id || part.id || '') === id);
   }
-  parts.push({ kind: 'tool', ...tool });
+  if (index < 0) {
+    index = parts.findIndex((part) => part.kind === 'tool'
+      && part.name === tool.name
+      && part.context === tool.context);
+  }
+  if (index >= 0) parts[index] = { ...parts[index], ...tool };
+  else parts.push({ kind: 'tool', ...tool });
   return { ...bubble, parts };
+}
+
+export function hasToolPart(bubble) {
+  return Array.isArray(bubble.parts) && bubble.parts.some((part) => part.kind === 'tool');
 }
 
 function hasDiffPart(bubble) {
@@ -869,21 +862,77 @@ function renderDiffPart(diff, t, partIndex = 0, prefix = '', cwd = '') {
 function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   const name = toolTrailLabel(part.name || 'tool');
   const cwd = ctx.cwd || '';
-  const maxWidth = ctx.width || 0;
-  const headerMatch = DIFF_FILE_RE.exec(String(part.diff || ''));
-  const diffPath = headerMatch ? displayPath(headerMatch[2], cwd) : '';
-  const shownPath = diffPath || compactPreview(part.context || '', 200);
+  const context = compactPreview(part.context || part.args_text || '', 80);
+  const summary = compactPreview(part.summary || part.result_text || '', 180);
+  const status = String(part.status || (part.duration_s != null ? 'done' : 'active'));
   const duration = typeof part.duration_s === 'number' ? ` ${part.duration_s.toFixed(1)}s` : '';
-  const lead = `🔧 ${name}${shownPath ? ' ' : ''}`;
-  const budget = maxWidth
-    ? Math.max(12, maxWidth - stringWidth(lead) - stringWidth(duration))
-    : 64;
-  const header = `${lead}${shownPath ? fitPathTail(shownPath, budget) : ''}${duration}`;
+  const mark = status === 'waiting_approval' ? ' …' : status === 'timed_out' || status === 'error' ? ' ✗' : status === 'done' ? ' ✓' : ' …';
+  const call = context ? `${name}("${context}")` : name;
+  const lead = `🔧 ${call}`;
+  const header = `${lead}${duration}${mark}`;
   const children = [
     h(Text, { key: `tool-${partIndex}-header`, color: t.label, bold: true, wrap: 'truncate-end' }, header),
   ];
+  if (summary) {
+    children.push(h(Text, {
+      key: `tool-${partIndex}-summary`,
+      color: status === 'error' || status === 'timed_out' ? t.error : t.muted,
+      wrap: 'truncate-end',
+      dimColor: status === 'active' || status === 'waiting_approval',
+    }, summary));
+  }
   if (part.diff) children.push(renderDiffPart(part.diff, t, partIndex, '│ ', cwd));
   return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column', marginTop: 1 }, children);
+}
+
+const APPROVAL_LABELS = {
+  once: 'Approve once',
+  session: 'Approve for session',
+  always: 'Always allow',
+  deny: 'Deny',
+};
+
+function approvalCommandLines(approval, columns) {
+  const innerWidth = Math.max(20, Math.min(columns - 8, 100));
+  const command = String(approval.command || approval.description || '');
+  return wrapDisplayLine(command, innerWidth).slice(0, 6);
+}
+
+function approvalCardRows(approval, columns) {
+  const choices = approval.choices && approval.choices.length ? approval.choices : ['once', 'deny'];
+  return 4 + approvalCommandLines(approval, columns).length + choices.length;
+}
+
+function renderApprovalCard({ approval, selected, t, columns }) {
+  const width = Math.max(20, Math.min(columns - 2, 120));
+  const choices = approval.choices && approval.choices.length ? approval.choices : ['once', 'deny'];
+  const lines = approvalCommandLines(approval, columns);
+  const sel = Math.max(0, Math.min(selected, choices.length - 1));
+  return h(Box, {
+    width,
+    flexShrink: 0,
+    borderStyle: 'double',
+    borderColor: t.warn,
+    paddingX: 1,
+    marginTop: 1,
+    flexDirection: 'column',
+  },
+  h(Text, { color: t.warn, bold: true, wrap: 'truncate-end' },
+    `⚠ Approval required · ${approval.bot.name}${approval.tool_name ? ` · ${toolTrailLabel(approval.tool_name)}` : ''}`),
+  ...lines.map((line, i) => h(Text, {
+    key: `approval-command-${i}`,
+    color: t.text,
+    wrap: 'truncate-end',
+  }, line || ' ')),
+  h(Text, { color: t.muted, dimColor: true },
+    `↑/↓ select · Enter confirm · 1-${choices.length} pick · Esc deny`),
+  ...choices.map((choice, i) => h(Text, {
+    key: `approval-choice-${i}`,
+    color: i === sel ? t.primary : t.text,
+    bold: i === sel,
+    backgroundColor: i === sel ? t.completionCurrentBg : undefined,
+    wrap: 'truncate-end',
+  }, `${i === sel ? '▸ ' : '  '}${i + 1}. ${APPROVAL_LABELS[choice] || choice}`)));
 }
 
 function ctxBar(pct, w = 10) {
@@ -1280,6 +1329,68 @@ function useRoom(viewRef) {
   React.useEffect(() => {
     let dead = false;
 
+    const updateToolStatus = (bot, toolName, status) => {
+      const bubbleId = activeRef.current.get(bot.name);
+      if (!bubbleId) return;
+      setLog((prev) => prev.map((b) => (b.id === bubbleId
+        ? {
+          ...b,
+          parts: (Array.isArray(b.parts) ? b.parts : []).map((part) => (
+            part.kind === 'tool' && (!toolName || part.name === toolName)
+              ? { ...part, status }
+              : part
+          )),
+        }
+        : b)));
+    };
+
+    const handleApprovalRequest = (bot, payload, source, serverRequestId = null) => {
+      if (!bot || !payload) return;
+      const requestId = String(payload.request_id || payload.prompt_id || serverRequestId || '');
+      if (!requestId) return;
+      const allowed = new Set(['once', 'session', 'always', 'deny']);
+      let choices = Array.isArray(payload.choices)
+        ? payload.choices.filter((choice) => allowed.has(String(choice)))
+        : [];
+      if (!choices.length) {
+        choices = ['once'];
+        if (!payload.smart_denied && payload.allow_session !== false) choices.push('session');
+        if (!payload.smart_denied && payload.allow_permanent !== false) choices.push('always');
+        choices.push('deny');
+      }
+      const toolName = payload.tool_name || '';
+      const entry = {
+        bot,
+        request_id: requestId,
+        server_request_id: source === 'server' ? serverRequestId : null,
+        source,
+        session_id: bot.sessionId,
+        execution_generation: Number.isFinite(payload.execution_generation) ? payload.execution_generation : null,
+        command: String(payload.command || ''),
+        description: String(payload.description || 'dangerous command'),
+        tool_name: toolName,
+        choices,
+        created_at: Date.now(),
+      };
+      setApprovals((prev) => {
+        const rest = prev.filter((a) => a.request_id !== requestId);
+        return [...rest, entry];
+      });
+      updateToolStatus(bot, toolName, 'waiting_approval');
+      try {
+        bot.rpc('approval.received', {
+          session_id: bot.sessionId,
+          request_id: requestId,
+        }).catch(() => {});
+      } catch {}
+      setNotice(`${bot.name}: approval required`);
+    };
+
+    const removeApproval = (requestId) => {
+      if (!requestId) return;
+      setApprovals((prev) => prev.filter((a) => a.request_id !== String(requestId)));
+    };
+
     const handle = (bot, p) => {
       if (dead || !bot) return;
       const t = p.type;
@@ -1384,7 +1495,8 @@ function useRoom(viewRef) {
           const text = ((cur && cur.text) || (p.payload && p.payload.text) || '').trim();
           const pass = /^\(pass\)$/i.test(text);
           const diff = cur && hasDiffPart(cur);
-          if (!cur || (!diff && (!text || pass))) {
+          const tool = cur && hasToolPart(cur);
+          if (!cur || (!diff && !tool && (!text || pass))) {
             return prev.filter((b) => b.id !== id);
           }
           const rawParts = Array.isArray(cur.parts)
@@ -1461,23 +1573,55 @@ function useRoom(viewRef) {
             };
           });
         } else if (t === 'tool.start') {
+          const toolId = String(payload.tool_id || payload.id || payload.name || `tool:${Date.now()}`);
           setTools((prev) => {
             const cur = prev[bot.name] || { active: {}, draftName: '' };
-            const id = String(payload.tool_id || payload.id || payload.name || `tool:${Date.now()}`);
             const active = {
               ...cur.active,
-              [id]: {
-                id,
+              [toolId]: {
+                id: toolId,
                 name: payload.name || 'tool',
                 context: payload.context || payload.args_text || '',
                 labels: Array.isArray(payload.labels) ? payload.labels : null,
-                startedAt: (cur.active[id] && cur.active[id].startedAt) || Date.now(),
+                startedAt: (cur.active[toolId] && cur.active[toolId].startedAt) || Date.now(),
                 drafting: false,
               },
             };
             return { ...prev, [bot.name]: { active, draftName: '' } };
           });
+          const bubbleId = activeRef.current.get(bot.name);
+          if (bubbleId) {
+            setLog((prev) => prev.map((b) => (b.id === bubbleId
+              ? upsertToolPart(b, {
+                tool_id: toolId,
+                name: payload.name || 'tool',
+                context: payload.context || payload.args_text || '',
+                labels: Array.isArray(payload.labels) ? payload.labels : null,
+                started_at: Date.now(),
+                status: 'active',
+              })
+              : b)));
+          }
         } else {
+          const inlineDiff = payload.inline_diff ? cleanInlineDiff(payload.inline_diff) : '';
+          const toolId = String(payload.tool_id || payload.id || '');
+          const duration = Number(payload.duration_s);
+          const bubbleId = activeRef.current.get(bot.name);
+          if (bubbleId) {
+            setLog((prev) => prev.map((b) => (b.id === bubbleId
+              ? upsertToolPart(b, {
+                tool_id: toolId,
+                name: payload.name || 'tool',
+                context: payload.context || payload.args_text || '',
+                labels: Array.isArray(payload.labels) ? payload.labels : null,
+                duration_s: Number.isFinite(duration) ? duration : undefined,
+                summary: payload.summary || '',
+                result_text: payload.result_text || '',
+                status: 'done',
+                diff: inlineDiff || undefined,
+              })
+              : b)));
+          }
           setTools((prev) => {
             const cur = prev[bot.name];
             if (!cur) return prev;
@@ -1497,26 +1641,30 @@ function useRoom(viewRef) {
             return next;
           });
         }
-        const inlineDiff = payload.inline_diff ? cleanInlineDiff(payload.inline_diff) : '';
-        if (t === 'tool.complete' && inlineDiff) {
-          const bubbleId = activeRef.current.get(bot.name);
-          if (bubbleId) {
-            const duration = Number(payload.duration_s);
-            setLog((prev) => prev.map((b) => (b.id === bubbleId
-              ? appendToolPart(b, {
-                name: payload.name || 'tool',
-                context: payload.context || payload.args_text || '',
-                duration_s: Number.isFinite(duration) ? duration : undefined,
-                diff: inlineDiff,
-              })
-              : b)));
-          }
-        }
         setStatuses((s) => ({ ...s, [bot.name]: s[bot.name] && s[bot.name] !== 'ready' ? s[bot.name] : 'streaming…' }));
         return;
       }
       if (t === 'session.info') {
         setRuntimeFor(bot, p.payload || {});
+        return;
+      }
+      if (t === 'approval.request') {
+        handleApprovalRequest(bot, p.payload || {}, 'event');
+        return;
+      }
+      if (t === 'approval.settled' || t === 'approval.cancelled' || t === 'request.cancel') {
+        const payload = p.payload || {};
+        const id = payload.request_id || payload.prompt_id || payload.id || '';
+        if (id) removeApproval(id);
+        setLog((prev) => prev.map((b) => ({
+          ...b,
+          parts: (Array.isArray(b.parts) ? b.parts : []).map((part) => (
+            part.kind === 'tool' && part.status === 'waiting_approval'
+              ? { ...part, status: 'timed_out' }
+              : part
+          )),
+        })));
+        setNotice(`approval ${payload.reason || 'cancelled'}`);
         return;
       }
       if (t === 'error') {
@@ -1560,15 +1708,7 @@ function useRoom(viewRef) {
       if (dead || !bot || msg.method !== 'approval') return;
       const p = msg.params || {};
       if (p.session_id && bot.sessionId && p.session_id !== bot.sessionId) return;
-      setApprovals((prev) => {
-        const rest = prev.filter((a) => a.prompt_id !== msg.id);
-        return [...rest, {
-          bot,
-          prompt_id: msg.id,
-          command: p.command,
-          description: p.description,
-        }];
-      });
+      handleApprovalRequest(bot, p, 'server', msg.id);
     };
 
     const makeRequest = (holder) => (msg) => handleRequest(holder.bot, msg);
@@ -1682,6 +1822,13 @@ function useRoom(viewRef) {
           });
           bot.sessionId = snap.session_id;
           setStatuses((s) => ({ ...s, [bot.name]: 'ready' }));
+          // Replay approvals that were already waiting when this session attached.
+          try {
+            const pendingApprovals = await bot.rpc('approval.pending', { session_id: bot.sessionId });
+            for (const approval of pendingApprovals.approvals || []) {
+              handleApprovalRequest(bot, approval, 'pending');
+            }
+          } catch {}
           // Capabilities and the runtime snapshot do not block the first paint.
           (async () => {
             try { await bot.rpc('client.capabilities', { server_requests: true }); } catch {}
@@ -1778,12 +1925,25 @@ function useRoom(viewRef) {
     const first = approvals[0];
     if (!first) return;
     try {
-      await first.bot.rpc('approval.respond', {
-        session_id: first.bot.sessionId,
-        prompt_id: first.prompt_id,
-        choice,
-      });
-      setApprovals((prev) => prev.filter((a) => a.prompt_id !== first.prompt_id));
+      if (first.server_request_id) {
+        const ws = first.bot.ws;
+        if (!ws || ws.readyState !== 1) throw new Error('gateway socket not open');
+        ws.send(JSON.stringify({
+          jsonrpc: '2.0',
+          id: first.server_request_id,
+          result: { choice },
+        }));
+      } else {
+        await first.bot.rpc('approval.respond', {
+          session_id: first.bot.sessionId,
+          request_id: first.request_id,
+          prompt_id: first.request_id,
+          execution_generation: first.execution_generation,
+          choice,
+        });
+      }
+      setApprovals((prev) => prev.filter((a) => a.request_id !== first.request_id));
+      setNotice(`approval: ${choice}`);
     } catch (e) {
       setNotice(`approval: ${e.message}`);
     }
@@ -1939,6 +2099,9 @@ function Stage() {
   const lastLensRef = React.useRef('');
   viewRef.current = view;
   const room = useRoom(viewRef);
+  const [approvalSel, setApprovalSel] = React.useState(0);
+  const approvalKey = room.approvals.map((approval) => approval.request_id).join('|');
+  React.useEffect(() => { setApprovalSel(0); }, [approvalKey]);
   const [composer, setComposer] = React.useState('');
   const [composerCursor, setComposerCursor] = React.useState(0);
 
@@ -2193,6 +2356,35 @@ function Stage() {
 
   useInput((input, key) => {
     if (key.ctrl && input === 'c') { app.exit(); return; }
+
+    if (room.approvals.length) {
+      const approval = room.approvals[0];
+      const choices = approval.choices && approval.choices.length
+        ? approval.choices
+        : ['once', 'deny'];
+      const selected = Math.max(0, Math.min(approvalSel, choices.length - 1));
+      if (key.escape) { room.respond('deny'); return; }
+      if (key.upArrow) {
+        setApprovalSel((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setApprovalSel((i) => Math.min(choices.length - 1, i + 1));
+        return;
+      }
+      if (key.return) {
+        room.respond(choices[selected] || 'deny');
+        return;
+      }
+      if (/^[1-9]$/.test(input)) {
+        const index = Number(input) - 1;
+        if (index < choices.length) room.respond(choices[index]);
+        return;
+      }
+      if (input === 'a' || input === 'A') { room.respond('once'); return; }
+      if (input === 'd' || input === 'D') { room.respond('deny'); return; }
+      return;
+    }
 
     if (pickerOpen) {
       if (key.upArrow) {
@@ -2488,7 +2680,8 @@ function Stage() {
   const composerRows = 3;
   const tabRows = 2;
   const maxStatusRows = 1;
-  const viewportHeight = Math.max(4, rows - (panelRows + scrollHintRows + maxStatusRows + composerRows + tabRows));
+  const approvalRows = room.approvals.length ? Math.min(14, approvalCardRows(room.approvals[0], columns)) : 0;
+  const viewportHeight = Math.max(4, rows - (panelRows + scrollHintRows + maxStatusRows + composerRows + tabRows + approvalRows));
 
   const activePerBubble = active.length
     ? Math.max(1, Math.min(8, Math.floor(viewportHeight / active.length) - 4))
@@ -2547,13 +2740,12 @@ function Stage() {
           h(StageBanner, { columns, t }),
           ...completed.map((b) => renderBubble(b)),
           ...streaming))),
-    room.approvals.length ? h(Box, {
-      borderStyle: 'round', borderColor: t.warn, paddingX: 1, marginTop: 1, flexDirection: 'column',
-    },
-      h(Text, { color: t.warn, bold: true },
-        `⚠ Approval required · ${room.approvals[0].bot.name}`),
-      h(Text, { color: t.text }, String(room.approvals[0].command || room.approvals[0].description || 'pending')),
-      h(Text, { color: t.muted, dimColor: true }, 'a: approve once · d: deny')) : null,
+    room.approvals.length ? renderApprovalCard({
+      approval: room.approvals[0],
+      selected: approvalSel,
+      t,
+      columns,
+    }) : null,
     slashOpen && slashItems.length ? h(Box, {
       alignSelf: 'flex-start',
       backgroundColor: t.completionBg,

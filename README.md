@@ -97,6 +97,18 @@ For a clean demo:
 scripts/reset-stage-room.sh
 ```
 
+## Tool trail and approvals
+
+Bot tool calls are persisted in the transcript, not just the status bar. A call
+appears as a tool row with its name, context, duration, result summary, and
+✓/✗ state; inline diffs still render below it.
+
+A tool that needs approval opens a prompt card with the gateway’s command,
+description, profile/tool label, and choices (`once`, `session`, `always`,
+`deny`). Use number keys, Up/Down plus Enter, or Esc to deny. Existing `a`/`d`
+shortcuts remain. Pending approvals are replayed on connect, and timeout/
+cancellation closes the card and marks the associated tool row as timed out.
+
 ## Disclosures
 
 - Launches Hermes' own `gateway_bootstrap.py` helper from the local Hermes install and starts a local Node process.
