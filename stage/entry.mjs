@@ -906,6 +906,52 @@ export function isEscapeKey(input, key) {
   return String(input || '') === '\u001b';
 }
 
+export function approvalAction(input, key, selected, choices) {
+  if (isEscapeKey(input, key)) return { kind: 'choose', choice: 'deny' };
+
+  const n = Number(input);
+  if (Number.isInteger(n) && n >= 1 && n <= choices.length) {
+    return { kind: 'choose', choice: choices[n - 1] };
+  }
+
+  if (isEnterKey(input, key)) {
+    const index = Math.max(0, Math.min(selected, choices.length - 1));
+    return { kind: 'choose', choice: choices[index] || 'deny' };
+  }
+
+  if (!key) return { kind: 'noop' };
+  if (key.upArrow) return { kind: 'move', delta: -1 };
+  if (key.downArrow) return { kind: 'move', delta: 1 };
+  return { kind: 'noop' };
+}
+
+export function approvalAnswer(entry, choice) {
+  if (entry.server_request_id) {
+    return { path: 'server', id: entry.server_request_id, result: { choice } };
+  }
+  if (entry.source === 'event' && entry.prompt_id && Number.isFinite(entry.execution_generation)) {
+    return {
+      path: 'canonical',
+      method: 'approval.respond',
+      params: {
+        session_id: entry.session_id,
+        prompt_id: entry.prompt_id,
+        execution_generation: entry.execution_generation,
+        choice,
+      },
+    };
+  }
+  return {
+    path: 'legacy',
+    method: 'approval.respond',
+    params: {
+      session_id: entry.session_id,
+      request_id: entry.request_id,
+      choice,
+    },
+  };
+}
+
 const APPROVAL_LABELS = {
   once: 'Approve once',
   session: 'Approve for session',
@@ -1973,29 +2019,17 @@ function useRoom(viewRef) {
     const first = approvals[0];
     if (!first) return;
     try {
-      if (first.server_request_id) {
+      const answer = approvalAnswer(first, choice);
+      if (answer.path === 'server') {
         const ws = first.bot.ws;
         if (!ws || ws.readyState !== 1) throw new Error('gateway socket not open');
         ws.send(JSON.stringify({
           jsonrpc: '2.0',
-          id: first.server_request_id,
-          result: { choice },
+          id: answer.id,
+          result: answer.result,
         }));
-      } else if (first.source === 'event' && first.prompt_id && Number.isFinite(first.execution_generation)) {
-        // Canonical shared control: generation-bound, answered with prompt_id.
-        await first.bot.rpc('approval.respond', {
-          session_id: first.bot.sessionId,
-          prompt_id: first.prompt_id,
-          execution_generation: first.execution_generation,
-          choice,
-        });
       } else {
-        // Legacy/pending approval queue: answered by the gateway request id.
-        await first.bot.rpc('approval.respond', {
-          session_id: first.bot.sessionId,
-          request_id: first.request_id,
-          choice,
-        });
+        await first.bot.rpc(answer.method, answer.params);
       }
       setApprovals((prev) => prev.filter((a) => a.request_id !== first.request_id));
       setNotice(`approval: ${choice}`);
@@ -2417,27 +2451,15 @@ function Stage() {
       const choices = approval.choices && approval.choices.length
         ? approval.choices
         : ['once', 'deny'];
-      const selected = Math.max(0, Math.min(approvalSel, choices.length - 1));
-      if (isEscapeKey(input, key)) { room.respond('deny'); return; }
-      if (key.upArrow) {
-        setApprovalSel((i) => Math.max(0, i - 1));
+      const action = approvalAction(input, key, approvalSel, choices);
+      if (action.kind === 'choose') {
+        room.respond(action.choice);
         return;
       }
-      if (key.downArrow) {
-        setApprovalSel((i) => Math.min(choices.length - 1, i + 1));
+      if (action.kind === 'move') {
+        setApprovalSel((i) => Math.max(0, Math.min(choices.length - 1, i + action.delta)));
         return;
       }
-      if (isEnterKey(input, key)) {
-        room.respond(choices[selected] || 'deny');
-        return;
-      }
-      if (/^[1-9]$/.test(input)) {
-        const index = Number(input) - 1;
-        if (index < choices.length) room.respond(choices[index]);
-        return;
-      }
-      if (input === 'a' || input === 'A') { room.respond('once'); return; }
-      if (input === 'd' || input === 'D') { room.respond('deny'); return; }
       return;
     }
 
