@@ -29,6 +29,15 @@ session approval therefore keeps its actual choice and lets the tool complete.
 Stage uses Ink with a fixed transcript viewport and incremental repainting. Profile
 tabs are not separate sessions; they are lens views over the shared room state.
 
+## Performance
+
+- Streamed delta events are buffered and flushed at roughly 80 ms rather than
+  updating the room log for every token.
+- Completed bubbles are memoized, so a spinner tick or another profile's stream
+  does not reconcile every completed transcript bubble.
+- Room-state writes use compact JSON rather than pretty-printed JSON.
+- Room context limits and discussion caps are unchanged.
+
 ## Limitations
 
 - The room is simulated by the plugin, not Hermes Desktop's hosted group-room engine.

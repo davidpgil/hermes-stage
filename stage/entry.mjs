@@ -118,7 +118,7 @@ function saveRoomState(bubbles) {
       version: 1,
       savedAt: new Date().toISOString(),
       bubbles: clean,
-    }, null, 2), { mode: 0o600 });
+    }), { mode: 0o600 });
     renameSync(tmp, ROOM_STATE_PATH);
   } catch {
     // Persistence is best-effort; a failed save must never break the room.
@@ -930,6 +930,66 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column' }, children);
 }
 
+function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) {
+  const user = b.speaker === 'You';
+  const parts = Array.isArray(b.parts) && b.parts.length
+    ? b.parts
+    : [{ kind: 'text', text: displayText == null ? b.text : displayText }];
+  const hasDiff = parts.some((part) => part.kind === 'diff');
+  const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
+  const dots = b.done ? '' : '.'.repeat(1 + (tick % 3));
+  const bubbleText = displayText == null ? (b.text || '') : displayText;
+  const asksPeer = !user && (b.asksPeer || /\B@(everyone|all)\b/i.test(bubbleText)
+    || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
+  const align = user || asksPeer ? 'flex-start' : 'flex-end';
+
+  const borderColor = user ? t.accent : (b.borderColor || t.border);
+  const topRule = `┏${'━'.repeat(Math.max(0, bubbleWidth - 2))}┓`;
+  const bottomRule = `┗${'━'.repeat(Math.max(0, bubbleWidth - 2))}┛`;
+
+  return h(Box, {
+    width: bodyWidth,
+    flexShrink: 0,
+    justifyContent: align,
+    marginTop: 1,
+  },
+    h(Box, {
+      width: bubbleWidth,
+      flexShrink: 0,
+      flexDirection: 'column',
+    },
+      h(Text, { color: borderColor }, topRule),
+      h(Box, { flexDirection: 'column', paddingX: 1 },
+        user ? null : h(Text, { color: t.label, bold: true, wrap: 'truncate-end' },
+          `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}`),
+        parts.map((part, i) => {
+          if (part.kind === 'tool') {
+            return renderToolPart(part, t, i, { cwd, width: Math.max(20, bubbleWidth - 4) });
+          }
+          if (part.kind === 'diff') return renderDiffPart(part.text, t, i, '', cwd);
+          const rawText = displayText != null && i === lastTextIndex ? displayText : part.text;
+          const text = trimTrailingSpaces(rawText);
+          if (displayText != null && hasDiff && i !== lastTextIndex) return null;
+          if (!text) {
+            return hasDiff ? null : h(Text, {
+              key: `part-${i}`,
+              color: user ? t.label : t.text,
+              wrap: 'wrap',
+              dimColor: true,
+            }, dots);
+          }
+          return h(Text, {
+            key: `part-${i}`,
+            color: user ? t.label : t.text,
+            wrap: 'wrap',
+            dimColor: !String(part.text || '').trim(),
+          }, renderMentions(text, `part-${i}`));
+        })),
+      h(Text, { color: borderColor }, bottomRule)));
+}
+
+const MemoBubble = React.memo(Bubble);
+
 export function isEnterKey(input, key) {
   // Composer submit treats any CR/LF in the chunk as Enter. The card must do
   // the same: some terminals deliver one read of CR+LF, which is not key.return
@@ -1153,12 +1213,17 @@ function useRoom(viewRef) {
     process.on('exit', flush);
     return () => process.off('exit', flush);
   }, []);
+  React.useEffect(() => () => {
+    if (deltaTimerRef.current) clearTimeout(deltaTimerRef.current);
+  }, []);
   const [statuses, setStatuses] = React.useState({});
   const [notice, setNotice] = React.useState('');
   const [tick, setTick] = React.useState(0);
   const clientsRef = React.useRef([]);
   const [botList, setBotList] = React.useState([]);
   const activeRef = React.useRef(new Map());
+  const pendingDeltaRef = React.useRef(new Map());
+  const deltaTimerRef = React.useRef(null);
   const streamTurnRef = React.useRef(new Map());
   const segmentRef = React.useRef(new Map());
   const pendingRef = React.useRef(new Map());
@@ -1186,6 +1251,39 @@ function useRoom(viewRef) {
   const [thinking, setThinking] = React.useState({});
   const [focusName, setFocusName] = React.useState('');
   const [theme, setTheme] = React.useState(null);
+
+  const flushPendingDeltas = React.useCallback(() => {
+    if (deltaTimerRef.current) {
+      clearTimeout(deltaTimerRef.current);
+      deltaTimerRef.current = null;
+    }
+    const pending = pendingDeltaRef.current;
+    if (!pending.size) return;
+    pendingDeltaRef.current = new Map();
+
+    setLog((prev) => prev.map((b) => {
+      const entry = pending.get(b.id);
+      if (!entry) return b;
+      const addition = String(entry.text);
+      return {
+        ...b,
+        text: b.text + (b.text ? addition : addition.replace(/^\s+/, '')),
+        parts: appendTextPart(b.parts, addition),
+        asksPeer: b.asksPeer || addressedPeers(addition, b.speaker).length > 0,
+      };
+    }));
+
+    setLiveMetrics((prev) => {
+      const next = { ...prev };
+      for (const entry of pending.values()) {
+        const cur = next[entry.name] || { startedAt: Date.now(), chars: 0 };
+        const chars = cur.chars + entry.chars;
+        const seconds = Math.max(0.1, (Date.now() - cur.startedAt) / 1000);
+        next[entry.name] = { ...cur, chars, tps: chars / 4 / seconds };
+      }
+      return next;
+    });
+  }, [setLog]);
 
   const clearUnread = React.useCallback((name) => {
     setUnread((prev) => {
@@ -1560,26 +1658,20 @@ function useRoom(viewRef) {
         if (!d) return;
         const id = activeRef.current.get(bot.name);
         if (!id) return;
-        setLog((prev) => prev.map((b) => (b.id === id
-          ? {
-            ...b,
-            text: b.text + (b.text ? d : String(d).replace(/^\s+/, '')),
-            parts: appendTextPart(b.parts, d),
-            asksPeer: b.asksPeer || addressedPeers(String(d), b.speaker).length > 0,
-          }
-          : b)));
-        setLiveMetrics((prev) => {
-          const cur = prev[bot.name] || { startedAt: Date.now(), chars: 0 };
-          const chars = cur.chars + String(d).length;
-          const seconds = Math.max(0.1, (Date.now() - cur.startedAt) / 1000);
-          return { ...prev, [bot.name]: { ...cur, chars, tps: chars / 4 / seconds } };
-        });
+        const entry = pendingDeltaRef.current.get(id) || { name: bot.name, text: '', chars: 0 };
+        entry.text += d;
+        entry.chars += String(d).length;
+        pendingDeltaRef.current.set(id, entry);
+        if (!deltaTimerRef.current) {
+          deltaTimerRef.current = setTimeout(flushPendingDeltas, 80);
+        }
         return;
       }
       if (t === 'message.complete') {
         const completeTurnId = String(p.payload?.turn_id || '');
         const expectedTurn = streamTurnRef.current.get(bot.name);
         if (completeTurnId && expectedTurn && completeTurnId !== expectedTurn) return;
+        flushPendingDeltas();
         const pcount = pendingOf(bot.name);
         if (pcount <= 0) return;
         pendingRef.current.set(bot.name, pcount - 1);
@@ -2733,66 +2825,6 @@ function Stage() {
     return texts.length ? texts[texts.length - 1].text : b.text;
   };
 
-  const renderBubble = (b, displayText) => {
-    const user = b.speaker === 'You';
-    const parts = Array.isArray(b.parts) && b.parts.length
-      ? b.parts
-      : [{ kind: 'text', text: displayText == null ? b.text : displayText }];
-    const hasDiff = parts.some((part) => part.kind === 'diff');
-    const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
-    const dots = '.'.repeat(1 + (room.tick % 3));
-    const bubbleText = displayText == null ? (b.text || '') : displayText;
-    const asksPeer = !user && (b.asksPeer || /\B@(everyone|all)\b/i.test(bubbleText)
-      || room.bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
-    const align = user || asksPeer ? 'flex-start' : 'flex-end';
-
-    const borderColor = user ? t.accent : (b.borderColor || t.border);
-    const topRule = `┏${'━'.repeat(Math.max(0, bubbleWidth - 2))}┓`;
-    const bottomRule = `┗${'━'.repeat(Math.max(0, bubbleWidth - 2))}┛`;
-
-    return h(Box, {
-      key: b.id,
-      width: bodyWidth,
-      flexShrink: 0,
-      justifyContent: align,
-      marginTop: 1,
-    },
-      h(Box, {
-        width: bubbleWidth,
-        flexShrink: 0,
-        flexDirection: 'column',
-      },
-        h(Text, { color: borderColor }, topRule),
-        h(Box, { flexDirection: 'column', paddingX: 1 },
-          user ? null : h(Text, { color: t.label, bold: true, wrap: 'truncate-end' },
-            `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}`),
-          parts.map((part, i) => {
-            const speakerCwd = (room.runtimes[b.speaker] && room.runtimes[b.speaker].cwd) || '';
-            if (part.kind === 'tool') {
-              return renderToolPart(part, t, i, { cwd: speakerCwd, width: Math.max(20, bubbleWidth - 4) });
-            }
-            if (part.kind === 'diff') return renderDiffPart(part.text, t, i, '', speakerCwd);
-            const rawText = displayText != null && i === lastTextIndex ? displayText : part.text;
-            const text = trimTrailingSpaces(rawText);
-            if (displayText != null && hasDiff && i !== lastTextIndex) return null;
-            if (!text) {
-              return hasDiff ? null : h(Text, {
-                key: `part-${i}`,
-                color: user ? t.label : t.text,
-                wrap: 'wrap',
-                dimColor: true,
-              }, dots);
-            }
-            return h(Text, {
-              key: `part-${i}`,
-              color: user ? t.label : t.text,
-              wrap: 'wrap',
-              dimColor: !String(part.text || '').trim(),
-            }, renderMentions(text, `part-${i}`));
-          })),
-        h(Text, { color: borderColor }, bottomRule)));
-  };
-
   const completed = lens.filter((b) => b.done && (b.text || hasDiffPart(b)));
   const active = lens.filter((b) => !b.done);
 
@@ -2812,8 +2844,19 @@ function Stage() {
   const activePerBubble = active.length
     ? Math.max(1, Math.min(8, Math.floor(viewportHeight / active.length) - 4))
     : 0;
+  const bubbleProps = (b, displayText, tick) => ({
+    key: b.id,
+    b,
+    displayText,
+    t,
+    bubbleWidth,
+    bodyWidth,
+    bots,
+    cwd: (room.runtimes[b.speaker] && room.runtimes[b.speaker].cwd) || '',
+    tick,
+  });
   const streaming = active.map((b) =>
-    renderBubble(b, fitTail(bubbleTail(b), activePerBubble, bubbleWidth)));
+    h(MemoBubble, bubbleProps(b, fitTail(bubbleTail(b), activePerBubble, bubbleWidth), room.tick)));
   const measuredContentHeight = contentMetrics.height || 0;
   const measuredViewportHeight = viewportMetrics.clientHeight || viewportHeight;
   const contentViewportHeight = viewportHeight;
@@ -2864,7 +2907,7 @@ function Stage() {
       },
         h(Box, { ref: contentRef, flexDirection: 'column', flexShrink: 0 },
           h(StageBanner, { columns, t }),
-          ...completed.map((b) => renderBubble(b)),
+          ...completed.map((b) => h(MemoBubble, bubbleProps(b, null, 0))),
           ...streaming))),
     room.approvals.length ? renderApprovalCard({
       approval: room.approvals[0],

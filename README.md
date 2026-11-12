@@ -74,6 +74,12 @@ Use `HERMES_STAGE_PROFILES=all` for the full roster.
 Approval cards use number keys, Up/Down plus Enter, or Esc to deny. Existing
 `a` / `d` shortcuts remain available.
 
+## Performance
+
+Stage coalesces streamed deltas at roughly 80 ms, memoizes completed transcript
+bubbles, and writes compact room-state JSON. Spinner ticks and stream updates
+therefore do not force every completed bubble to reconcile again.
+
 ## Documentation
 
 - [Documentation home](docs/index.md)
