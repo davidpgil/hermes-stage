@@ -125,7 +125,7 @@ function scheduleRoomStateSave(bubbles) {
   }, 150);
 }
 
-async function connectRaw(home, onEvent, onRequest, onClose) {
+export async function connectRaw(home, onEvent, onRequest, onClose) {
   const grant = await getGrant(home);
   return new Promise((resolve, reject) => {
     let settleReady;
