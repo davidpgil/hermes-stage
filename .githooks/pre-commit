@@ -92,6 +92,16 @@ if ! grep -Rq 'Tool-call' docs; then
   fail=1
 fi
 
+# The Hermes catalog release path is a durable project process, not a one-off.
+if [ ! -x scripts/hermes-catalog-pr.sh ]; then
+  note 'docs ERROR: scripts/hermes-catalog-pr.sh must exist and be executable'
+  fail=1
+fi
+if ! grep -q 'hermes-catalog-pr.sh' docs/development.md; then
+  note 'docs ERROR: docs/development.md must document scripts/hermes-catalog-pr.sh'
+  fail=1
+fi
+
 # Code changes must carry both a README update and a docs update in the same commit.
 if printf '%s\n' "${staged[@]}" | grep -qE '^(stage/|plugin\.yaml$)'; then
   if ! printf '%s\n' "${staged[@]}" | grep -qx 'README.md'; then

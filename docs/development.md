@@ -59,6 +59,26 @@ The hook enforces:
 Do not use `--no-verify` to bypass a violation you introduced. Fix the flagged file
 and stage the documentation update.
 
+## Hermes catalog release
+
+The catalog release is part of the release workflow:
+
+```sh
+scripts/hermes-catalog-pr.sh --check
+scripts/hermes-catalog-pr.sh
+```
+
+- `--check` verifies that `NousResearch/hermes-agent` already pins the current
+  plugin version and commit SHA.
+- Without flags, the helper syncs the fork, updates
+  `plugin-catalog/hermes-stage.yaml`, and opens or returns the catalog PR.
+- `--dry-run` prints the planned branch and PR without changing GitHub.
+
+The helper is idempotent: if the catalog already pins the release, it exits 0; if an
+open PR for that release exists, it returns that PR URL instead of creating a duplicate.
+
+The pre-commit hook requires this helper to exist and be documented here.
+
 ## Release checklist
 
 1. Update code and tests.
@@ -66,4 +86,5 @@ and stage the documentation update.
 3. Bump the version in all release surfaces.
 4. Run the test battery.
 5. Commit; the pre-commit hook must pass.
-6. Push to GitHub.
+6. Push the plugin release to GitHub.
+7. Run `scripts/hermes-catalog-pr.sh` and link the resulting Hermes catalog PR.
