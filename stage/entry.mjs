@@ -44,6 +44,30 @@ const MAX_DELTA_MESSAGES = 200;
 const MAX_DELTA_CHARS = 32000;
 const OVERSIZED_MESSAGE_CHARS = 8000;
 const MAX_STATE_MESSAGES = 400;
+const TOOL_CALL_COLOR = '#8A8F98';
+const ACK_PHRASES = {
+  Seed: 'Acknowledged.',
+  Shir: '*nods*',
+  Alys: '*nods*',
+  Amy: '*nods*',
+  Chaz: '*nods*',
+  Demi: '*nods*',
+  Hahn: '*nods*',
+  Lutz: '*nods*',
+  Mieu: '*nods*',
+  Nei: '*nods*',
+  Raja: '*smiles*',
+  Rika: '*nods*',
+  Rolf: 'Acknowledged.',
+  Rune: '*nods*',
+  Wren: 'Acknowledged.',
+};
+
+export function acknowledgementFor(bot) {
+  const short = String((bot && bot.name) || '').split(' · ')[0].trim();
+  return ACK_PHRASES[short] || '*nods*';
+}
+
 const MAX_PARALLEL_PROFILES = 2;
 const RPC_TIMEOUT_MS = 60000;
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
@@ -875,7 +899,7 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   const children = [
     h(Text, {
       key: `tool-${partIndex}-header`,
-      color: t.muted,
+      color: TOOL_CALL_COLOR,
       italic: true,
       wrap: 'truncate-end',
     }, header),
@@ -883,7 +907,7 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   if (summary) {
     children.push(h(Text, {
       key: `tool-${partIndex}-summary`,
-      color: t.muted,
+      color: TOOL_CALL_COLOR,
       wrap: 'truncate-end',
       dimColor: true,
     }, summary));
@@ -1565,8 +1589,12 @@ function useRoom(viewRef) {
           const pass = /^\(pass\)$/i.test(text);
           const diff = cur && hasDiffPart(cur);
           const tool = cur && hasToolPart(cur);
-          if (!cur || (!diff && !tool && (!text || pass))) {
-            return prev.filter((b) => b.id !== id);
+          if (!cur) return prev;
+          if (!diff && !tool && (!text || pass)) {
+            const ack = acknowledgementFor(bot);
+            return prev.map((b) => (b.id === id
+              ? { ...b, text: ack, done: true, parts: [{ kind: 'text', text: ack }] }
+              : b));
           }
           const rawParts = Array.isArray(cur.parts)
             ? cur.parts.map((part) => (part.kind === 'text'
