@@ -1947,8 +1947,6 @@ function useRoom(viewRef) {
         await first.bot.rpc('approval.respond', {
           session_id: first.bot.sessionId,
           request_id: first.request_id,
-          prompt_id: first.request_id,
-          execution_generation: first.execution_generation,
           choice,
         });
       }
