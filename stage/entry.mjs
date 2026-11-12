@@ -1721,7 +1721,13 @@ function useRoom(viewRef) {
         handleApprovalRequest(bot, p.payload || {}, 'event');
         return;
       }
-      if (t === 'approval.settled' || t === 'approval.cancelled' || t === 'request.cancel') {
+      if (t === 'approval.settled') {
+        const payload = p.payload || {};
+        const id = payload.request_id || payload.prompt_id || payload.id || '';
+        if (id) removeApproval(id);
+        return;
+      }
+      if (t === 'approval.cancelled' || t === 'request.cancel') {
         const payload = p.payload || {};
         const id = payload.request_id || payload.prompt_id || payload.id || '';
         if (id) removeApproval(id);
