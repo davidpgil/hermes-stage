@@ -32,7 +32,7 @@ package_version="$(node -p "require('./stage/package.json').version")"
 lock_version="$(node -p "require('./stage/package-lock.json').version")"
 lock_root_version="$(node -p "require('./stage/package-lock.json').packages[''].version")"
 entry_version="$(grep -o "STAGE_VERSION = '[^']*'" stage/entry.mjs | head -n 1 | sed "s/STAGE_VERSION = '//; s/'//")"
-readme_version="$(grep -o 'Current version: \*\*[^*]*\*\*' README.md | head -n 1 | sed 's/Current version: \*\*//; s/\*\*//')"
+readme_version="$(grep -o 'Current release: \*\*[^*]*\*\*' README.md | head -n 1 | sed 's/Current release: \*\*//; s/\*\*//')"
 
 check_version() {
   local label="$1" value="$2"
@@ -47,24 +47,59 @@ check_version 'stage/package-lock.json packages[""].version' "$lock_root_version
 check_version 'stage/entry.mjs STAGE_VERSION' "$entry_version"
 check_version 'README.md current version' "$readme_version"
 
-# The GitHub-facing README must document the current UI surface.
-if ! grep -q 'pass_ack' README.md; then
-  note 'docs ERROR: README.md must document branding.pass_ack'
+# The GitHub-facing README must stay a new-user guide, and the docs tree must
+# exist and be linked from it.
+required_docs=(
+  docs/index.md
+  docs/getting-started.md
+  docs/using-stage.md
+  docs/configuration.md
+  docs/architecture.md
+  docs/development.md
+  docs/security.md
+)
+for doc in "${required_docs[@]}"; do
+  if [ ! -f "$doc" ]; then
+    note "docs ERROR: required documentation file missing: $doc"
+    fail=1
+  fi
+  if ! grep -qF "$doc" README.md; then
+    note "docs ERROR: README.md must link to $doc"
+    fail=1
+  fi
+done
+
+if ! grep -q '^## Quick start' README.md; then
+  note 'docs ERROR: README.md must keep a new-user Quick start section'
   fail=1
 fi
-if ! grep -q 'Mentions are highlighted' README.md; then
-  note 'docs ERROR: README.md must document blue mention styling'
-  fail=1
-fi
-if ! grep -q 'Tool-call' README.md; then
-  note 'docs ERROR: README.md must document tool-call styling'
+if ! grep -q '^## Documentation' README.md; then
+  note 'docs ERROR: README.md must keep a Documentation section'
   fail=1
 fi
 
-# Code changes must carry a staged README update in the same commit.
+# Features belong in the docs tree, not as changelist entries in the README.
+if ! grep -Rq 'pass_ack' docs; then
+  note 'docs ERROR: docs must document branding.pass_ack'
+  fail=1
+fi
+if ! grep -Rq 'Mentions are highlighted' docs; then
+  note 'docs ERROR: docs must document blue mention styling'
+  fail=1
+fi
+if ! grep -Rq 'Tool-call' docs; then
+  note 'docs ERROR: docs must document tool-call styling'
+  fail=1
+fi
+
+# Code changes must carry both a README update and a docs update in the same commit.
 if printf '%s\n' "${staged[@]}" | grep -qE '^(stage/|plugin\.yaml$)'; then
   if ! printf '%s\n' "${staged[@]}" | grep -qx 'README.md'; then
     note 'docs ERROR: code changes require README.md staged in the same commit'
+    fail=1
+  fi
+  if ! printf '%s\n' "${staged[@]}" | grep -q '^docs/'; then
+    note 'docs ERROR: code changes require a docs/ update staged in the same commit'
     fail=1
   fi
 fi
