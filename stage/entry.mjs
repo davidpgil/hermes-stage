@@ -45,27 +45,12 @@ const MAX_DELTA_CHARS = 32000;
 const OVERSIZED_MESSAGE_CHARS = 8000;
 const MAX_STATE_MESSAGES = 400;
 const TOOL_CALL_COLOR = '#8A8F98';
-const ACK_PHRASES = {
-  Seed: 'Acknowledged.',
-  Shir: '*nods*',
-  Alys: '*nods*',
-  Amy: '*nods*',
-  Chaz: '*nods*',
-  Demi: '*nods*',
-  Hahn: '*nods*',
-  Lutz: '*nods*',
-  Mieu: '*nods*',
-  Nei: '*nods*',
-  Raja: '*smiles*',
-  Rika: '*nods*',
-  Rolf: 'Acknowledged.',
-  Rune: '*nods*',
-  Wren: 'Acknowledged.',
-};
+const MENTION_COLOR = '#4DA6FF';
 
 export function acknowledgementFor(bot) {
-  const short = String((bot && bot.name) || '').split(' · ')[0].trim();
-  return ACK_PHRASES[short] || '*nods*';
+  const branding = (bot && bot.skin && bot.skin.branding) || {};
+  const phrase = String(branding.pass_ack || branding.acknowledgement || '').trim();
+  return phrase || '*nods*';
 }
 
 const MAX_PARALLEL_PROFILES = 2;
@@ -773,6 +758,29 @@ function mentionsMember(name, text) {
   if (!short) return false;
   const escaped = short.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return new RegExp(`(?:^|[^A-Za-z0-9_])@${escaped}\\b`, 'i').test(String(text || ''));
+}
+
+function renderMentions(text, keyPrefix = 'text') {
+  const value = String(text || '');
+  const re = /@(?:everyone|all|[A-Za-z][\w-]*)/g;
+  const nodes = [];
+  let last = 0;
+  let found = false;
+  for (const match of value.matchAll(re)) {
+    const start = match.index;
+    const prev = start > 0 ? value[start - 1] : '';
+    if (prev && /[A-Za-z0-9_]/.test(prev)) continue;
+    found = true;
+    if (start > last) nodes.push(value.slice(last, start));
+    nodes.push(h(Text, {
+      key: `${keyPrefix}-mention-${start}`,
+      color: MENTION_COLOR,
+    }, match[0]));
+    last = start + match[0].length;
+  }
+  if (!found) return value;
+  if (last < value.length) nodes.push(value.slice(last));
+  return nodes;
 }
 
 export function displayPath(path, cwd) {
@@ -2774,7 +2782,7 @@ function Stage() {
               color: user ? t.label : t.text,
               wrap: 'wrap',
               dimColor: !String(part.text || '').trim(),
-            }, text);
+            }, renderMentions(text, `part-${i}`));
           })),
         h(Text, { color: borderColor }, bottomRule)));
   };

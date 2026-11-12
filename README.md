@@ -61,6 +61,24 @@ transcript do not require a full-screen clear on every update.
 It uses only public npm dependencies (`ink`, `react`, and `string-width`); no private
 Hermes npm package is required.
 
+Mentions are highlighted as blue text tokens only (`@name`, `@everyone`, `@all`);
+there is no background pill or bold treatment. Bot bubbles that address a peer are
+left-aligned so room-directed messages read differently from ordinary replies.
+
+## Skin hook: silent-turn acknowledgement
+
+When a bot chooses not to speak (`(pass)`, or an empty reply with no tool/diff),
+Stage keeps the turn and shows a short non-verbal acknowledgement. The phrase comes
+from the profile's skin, not the plugin:
+
+```yaml
+branding:
+  pass_ack: "*nods*"
+```
+
+The plugin falls back to `*nods*` when the field is absent. This is a client-side
+acknowledgement, not an LLM-generated reply.
+
 ## Using the room
 
 - **`STAGE`** is the unfiltered room. Every profile tab is a **lens** over the same
