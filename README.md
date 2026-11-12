@@ -34,6 +34,23 @@ npm install --no-audit --no-fund
 hermes plugins enable hermes-stage
 ```
 
+## Git hook
+
+This repository tracks a pre-commit hook at `.githooks/pre-commit`. Enable it once per checkout:
+
+```sh
+scripts/install-hooks.sh
+```
+
+The hook:
+
+- blocks private local paths, hostnames, credentials, and internal identifiers in staged content;
+- verifies that `plugin.yaml`, `stage/package.json`, `stage/package-lock.json`, `stage/entry.mjs`, and the README version all agree;
+- requires README updates when code changes are staged;
+- checks that the GitHub-facing README documents `pass_ack`, blue mention styling, and tool-call styling.
+
+Do not bypass it with `--no-verify`; fix the flagged content.
+
 ## Run
 
 ```sh
@@ -120,6 +137,9 @@ scripts/reset-stage-room.sh
 Bot tool calls are persisted in the transcript, not just the status bar. A call
 appears as a tool row with its name, context, duration, result summary, and
 ✓/✗ state; inline diffs still render below it.
+
+Tool-call headers and summaries use a fixed gray (`#8A8F98`), not the skin’s
+colored muted value.
 
 A tool that needs approval opens a prompt card with the gateway’s command,
 description, profile/tool label, and choices (`once`, `session`, `always`,
