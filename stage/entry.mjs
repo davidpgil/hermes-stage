@@ -44,6 +44,8 @@ const MAX_DELTA_MESSAGES = 200;
 const MAX_DELTA_CHARS = 32000;
 const OVERSIZED_MESSAGE_CHARS = 8000;
 const MAX_STATE_MESSAGES = 400;
+const MAX_PARALLEL_PROFILES = 2;
+const RPC_TIMEOUT_MS = 60000;
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
     ? `${DEFAULT_HOME}/state/hermes-stage-room.json`
@@ -155,7 +157,7 @@ async function connectRaw(home, onEvent, onRequest, onClose) {
       const timer = setTimeout(() => {
         pending.delete(id);
         rej(new Error(`gateway RPC timeout: ${method}`));
-      }, 30000);
+      }, RPC_TIMEOUT_MS);
       pending.set(id, {
         resolve: (value) => { clearTimeout(timer); res(value); },
         reject: (error) => { clearTimeout(timer); rej(error); },
@@ -1883,8 +1885,8 @@ function useRoom(viewRef) {
         if (primaryBot) setFocusName((f) => f || primaryBot.name);
         if (!dead) setOnline(true);
 
-        // Connect the remaining profiles concurrently; each one appears as it arrives,
-        // keeping roster order rather than resolution order.
+        // Connect the remaining profiles with bounded concurrency; each one appears
+        // as it arrives, but the gateway is not hit with all 15 at once.
         const otherRows = selected.filter((p) => !p.is_default);
         const slots = new Array(otherRows.length).fill(null);
         const rebuildBots = () => {
@@ -1894,30 +1896,54 @@ function useRoom(viewRef) {
           setBotList(ordered.slice());
         };
 
+        let activeConnections = 0;
+        const waitingSlots = [];
+        const acquireSlot = () => new Promise((resolve) => {
+          if (activeConnections < MAX_PARALLEL_PROFILES) {
+            activeConnections += 1;
+            resolve();
+          } else {
+            waitingSlots.push(resolve);
+          }
+        });
+        const releaseSlot = () => {
+          activeConnections = Math.max(0, activeConnections - 1);
+          const next = waitingSlots.shift();
+          if (next) {
+            activeConnections += 1;
+            next();
+          }
+        };
+
         const settled = await Promise.allSettled(otherRows.map(async (p, index) => {
-          const h2 = { bot: null };
-          const home = p.path || `${DEFAULT_HOME}/profiles/${p.name}`;
-          const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2), makeClose(h2));
-          const botTheme = buildTheme(raw2.skin);
-          const name = displayName(p, raw2.skin, defaultAgent);
-          const bot = {
-            ...raw2,
-            name,
-            profile: p.name,
-            color: botTheme.label,
-            borderColor: botTheme.bubbleBorder || botTheme.border,
-            sessionId: null,
-            preambled: false,
-            primary: false,
-            seenSeq: 0,
-            icon: profileIcon(p, raw2.skin),
-          };
-          h2.bot = bot;
-          await startSession(bot);
-          slots[index] = bot;
-          markConnected(bot);
-          rebuildBots();
-          return bot;
+          await acquireSlot();
+          try {
+            const h2 = { bot: null };
+            const home = p.path || `${DEFAULT_HOME}/profiles/${p.name}`;
+            const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2), makeClose(h2));
+            const botTheme = buildTheme(raw2.skin);
+            const name = displayName(p, raw2.skin, defaultAgent);
+            const bot = {
+              ...raw2,
+              name,
+              profile: p.name,
+              color: botTheme.label,
+              borderColor: botTheme.bubbleBorder || botTheme.border,
+              sessionId: null,
+              preambled: false,
+              primary: false,
+              seenSeq: 0,
+              icon: profileIcon(p, raw2.skin),
+            };
+            h2.bot = bot;
+            await startSession(bot);
+            slots[index] = bot;
+            markConnected(bot);
+            rebuildBots();
+            return bot;
+          } finally {
+            releaseSlot();
+          }
         }));
 
         for (let i = 0; i < settled.length; i++) {
