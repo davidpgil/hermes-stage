@@ -49,7 +49,7 @@ const MENTION_COLOR = '#4DA6FF';
 
 export function acknowledgementFor(bot) {
   const branding = (bot && bot.skin && bot.skin.branding) || {};
-  const phrase = String(branding.pass_ack || branding.acknowledgement || '').trim();
+  const phrase = String(branding.pass_ack || '').trim();
   return phrase || '*nods*';
 }
 
@@ -61,7 +61,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.50.38';
+const STAGE_VERSION = '0.50.39';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -664,7 +664,7 @@ function compactPreview(value, max = 64) {
 }
 
 function roomLine(entry) {
-  const name = entry.speaker === 'You' ? 'Architect' : entry.speaker;
+  const name = entry.speaker === 'You' ? 'user' : entry.speaker;
   return `${name}: ${entry.text}`;
 }
 
@@ -760,27 +760,33 @@ function mentionsMember(name, text) {
   return new RegExp(`(?:^|[^A-Za-z0-9_])@${escaped}\\b`, 'i').test(String(text || ''));
 }
 
-function renderMentions(text, keyPrefix = 'text') {
+export function mentionSegments(text) {
   const value = String(text || '');
-  const re = /@(?:everyone|all|[A-Za-z][\w-]*)/g;
-  const nodes = [];
+  const re = /@(?:everyone|all|[A-Za-z][\w-]*)(?![\w-])/g;
+  const segments = [];
   let last = 0;
-  let found = false;
   for (const match of value.matchAll(re)) {
     const start = match.index;
     const prev = start > 0 ? value[start - 1] : '';
     if (prev && /[A-Za-z0-9_]/.test(prev)) continue;
-    found = true;
-    if (start > last) nodes.push(value.slice(last, start));
-    nodes.push(h(Text, {
-      key: `${keyPrefix}-mention-${start}`,
-      color: MENTION_COLOR,
-    }, match[0]));
+    if (start > last) segments.push({ text: value.slice(last, start), mention: false });
+    segments.push({ text: match[0], mention: true });
     last = start + match[0].length;
   }
-  if (!found) return value;
-  if (last < value.length) nodes.push(value.slice(last));
-  return nodes;
+  if (last < value.length) segments.push({ text: value.slice(last), mention: false });
+  return segments.length ? segments : [{ text: value, mention: false }];
+}
+
+function renderMentions(text, keyPrefix = 'text') {
+  const value = String(text || '');
+  const segments = mentionSegments(value);
+  if (!segments.some((segment) => segment.mention)) return value;
+  return segments.map((segment, index) => (segment.mention
+    ? h(Text, {
+      key: `${keyPrefix}-mention-${index}`,
+      color: MENTION_COLOR,
+    }, segment.text)
+    : segment.text));
 }
 
 export function displayPath(path, cwd) {
@@ -1245,10 +1251,10 @@ function useRoom(viewRef) {
     const { text: delta, omitted } = boundedRoomDelta(log, bot.seenSeq || 0);
     return `[Hermes Stage group room: ${names}. You are ${bot.name}. ` +
       'Reply to the room as yourself. Do not use message_agent. ' +
-      'The Architect is the user in this room; a request relayed by a teammate in this room is a room request. ' +
+      'The user is the person in this room; a request relayed by a teammate in this room is a room request. ' +
       'This is a serial group Discussion. Reply with one conversational message only when you have something new worth adding; if you have nothing new to add, reply exactly "(pass)". ' +
       `Mention a teammate by handle (for example "@${peerExample(bot)}") to pull them into the next round; do not repeat points already made. ` +
-      'When the Architect asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
+      'When the user asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
       'To address every member at once, write "@everyone" (or "@all") in your reply; do not list several @ names. ' +
       'A bot reply containing "@Name" is a public room message that pulls that member into the next round; do not expect a private reply. ' +
       'Keep it short, answer only what was asked, and do not narrate delivery receipts.]\n\n' +
@@ -1261,15 +1267,15 @@ function useRoom(viewRef) {
     const { text: delta, omitted } = boundedRoomDelta(bubblesRef.current, bot.seenSeq || 0);
     return `[Hermes Stage group room: ${names}. You are ${bot.name}. ` +
       'Reply to the room as yourself. Do not use message_agent. ' +
-      'The Architect is the user in this room; a request relayed by a teammate in this room is a room request. ' +
+      'The user is the person in this room; a request relayed by a teammate in this room is a room request. ' +
       'This is a serial group Discussion. Reply with one conversational message only when you have something new worth adding; if you have nothing new to add, reply exactly "(pass)". ' +
       `Mention a teammate by handle (for example "@${peerExample(bot)}") to pull them into the next round; do not repeat points already made. ` +
-      'When the Architect asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
+      'When the user asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
       'To address every member at once, write "@everyone" (or "@all") in your reply; do not list several @ names. ' +
       'A bot reply containing "@Name" is a public room message that pulls that member into the next round; do not expect a private reply. ' +
       'Keep it short, answer only what was asked, and do not narrate delivery receipts.]\n\n' +
       `New room messages since your last turn${omitted ? ` (${omitted} earlier messages omitted)` : ''}:\n${delta || '(none)'}\n\n` +
-      `Architect's queued message: ${text}\n\nReply to the room now.`;
+      `User's queued message: ${text}\n\nReply to the room now.`;
   }
 
   async function promptMember(bot, overrideText) {
