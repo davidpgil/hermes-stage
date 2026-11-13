@@ -57,6 +57,10 @@ mode: a room message or `@everyone` gets one responder (the focused member, or t
 profile), other members observe, and automatic peer rounds stop after one round. With two
 or more admitted slots the room runs in **parallel** mode up to the gate limit.
 
+Stage also checks live occupancy (`/slots`, `is_processing`) before admitting a turn. If
+another client occupies every slot, the Stage turn is deferred and retried every 2 s;
+after 60 s it submits anyway with a notice, so the room cannot starve.
+
 ## Reconnect
 
 If the gateway restarts or a profile socket drops, Stage reconnects with exponential

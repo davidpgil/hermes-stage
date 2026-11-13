@@ -13,7 +13,7 @@ room with `@everyone`.
 - Profile tabs that act as display lenses over the same transcript.
 - Tool calls, diffs, and approval cards visible in the transcript.
 - A focused status board for each profile.
-- Capacity-aware turn admission so a room never floods the model endpoint.
+- Capacity-aware turn admission (slot count plus live occupancy) so a room never floods the model endpoint.
 - Bounded reconnect after a gateway restart, so an open room recovers itself.
 - A status board that stays visible before profiles connect, showing the configured model.
 - Failures are surfaced as notices instead of silently swallowed.
@@ -96,7 +96,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.54.0**
+Current release: **0.55.0**
 
 ## License
 

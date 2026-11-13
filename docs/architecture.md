@@ -13,7 +13,8 @@ transcript.
   rounds, capped at 3 rounds / 10 messages.
 - **Capacity gates** — one admission gate per model endpoint. A gate admits
   `slots - reserved` turns at once, queues the rest, and degrades a room message to a
-  single responder when only one slot is available.
+  single responder when only one slot is available. Live `/slots` occupancy is checked
+  before admitting, so turns are deferred while another client holds the brain.
 - **Bounded reconnect** — a dropped socket retries with exponential backoff, creates a
   fresh session, and rejoins the room; a terminal bootstrap failure stops immediately.
 

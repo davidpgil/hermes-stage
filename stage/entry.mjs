@@ -24,6 +24,7 @@ import stringWidth from 'string-width';
 import {
   normalizeEndpoint, probeCapacity, makeGate, admit, release as releaseGate,
   enqueue, pump, roomMode, responderLimit, pickResponders, resolveReserved,
+  probeOccupancy, foreignOccupancyLeavesRoom,
 } from './capacity.mjs';
 import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
 import { resolveStatusSource, modelForDisplay } from './status.mjs';
@@ -65,13 +66,16 @@ const RPC_TIMEOUT_MS = 60000;
 const RESERVED_SLOTS = resolveReserved(process.env.HERMES_STAGE_RESERVED_SLOTS);
 const RECONNECT_MAX = Math.max(0, Number(process.env.HERMES_STAGE_RECONNECT_MAX) || DEFAULT_MAX_ATTEMPTS);
 const CAPACITY_TTL_MS = 30000;
+const BUSY_TTL_MS = 3000;
+const BUSY_RETRY_MS = 2000;
+const BUSY_MAX_WAIT_MS = 60000;
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
     ? `${DEFAULT_HOME}/state/hermes-stage-room.json`
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.54.0';
+const STAGE_VERSION = '0.55.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1269,6 +1273,9 @@ function useRoom(viewRef) {
   const reconnectAttemptsRef = React.useRef(new Map());
   const reconnectTimersRef = React.useRef(new Map());
   const reconnectRef = React.useRef(null);
+  const occupancyCacheRef = React.useRef(new Map());
+  const busyTimersRef = React.useRef(new Map());
+  const busySinceRef = React.useRef(new Map());
   const [capacity, setCapacity] = React.useState({ mode: 'serial', slots: 1, ctx: 0 });
 
   const flushPendingDeltas = React.useCallback(() => {
@@ -1356,12 +1363,62 @@ function useRoom(viewRef) {
     return bot && bot.endpoint ? gatesRef.current.get(bot.endpoint) : null;
   }
 
-  function pumpGate(gate) {
-    if (!gate) return;
-    const items = pump(gate, (i) => i.bot && !i.bot.offline);
-    for (const item of items) {
-      setStatuses((s) => ({ ...s, [item.name]: 'waiting…' }));
-      sendPrompt(item.bot, item.overrideText);
+  async function endpointBusy(bot, gate) {
+    if (!gate || !bot || !bot.endpoint) return false;
+    const key = bot.endpoint;
+    let live = occupancyCacheRef.current.get(key);
+    if (!live || Date.now() - live.at >= BUSY_TTL_MS) {
+      try {
+        live = await probeOccupancy(bot.endpoint, gate.apiKey || '');
+      } catch {
+        return false;
+      }
+      occupancyCacheRef.current.set(key, live);
+    }
+    return !foreignOccupancyLeavesRoom(gate, live);
+  }
+
+  function scheduleBusyPump(gate) {
+    if (!gate || busyTimersRef.current.has(gate)) return;
+    const timer = setTimeout(() => {
+      busyTimersRef.current.delete(gate);
+      pumpGate(gate).catch(() => {});
+    }, BUSY_RETRY_MS);
+    busyTimersRef.current.set(gate, timer);
+  }
+
+  async function pumpGate(gate) {
+    if (!gate || gate.pumping) return;
+    gate.pumping = true;
+    try {
+      while (gate.inflight.size < gate.max && gate.queue.length) {
+        const first = gate.queue[0];
+        if (!first || !first.bot || first.bot.offline) {
+          gate.queue.shift();
+          continue;
+        }
+        const busy = await endpointBusy(first.bot, gate);
+        if (busy) {
+          const since = busySinceRef.current.get(gate) || Date.now();
+          busySinceRef.current.set(gate, since);
+          if (Date.now() - since >= BUSY_MAX_WAIT_MS) {
+            setNotice('brain busy too long — submitting anyway');
+          } else {
+            scheduleBusyPump(gate);
+            return;
+          }
+        } else {
+          busySinceRef.current.delete(gate);
+        }
+        const items = pump(gate, (i) => i.bot && !i.bot.offline);
+        if (!items.length) return;
+        for (const item of items) {
+          setStatuses((s) => ({ ...s, [item.name]: 'waiting…' }));
+          sendPrompt(item.bot, item.overrideText);
+        }
+      }
+    } finally {
+      gate.pumping = false;
     }
   }
 
@@ -1369,7 +1426,7 @@ function useRoom(viewRef) {
     const gate = gateFor(bot);
     if (!gate) return;
     releaseGate(gate, bot.name);
-    pumpGate(gate);
+    pumpGate(gate).catch(() => {});
   }
 
   function refreshCapacity() {
@@ -1409,7 +1466,11 @@ function useRoom(viewRef) {
       if (existing) {
         existing.slots = fresh.slots;
         existing.max = fresh.max;
+        existing.apiKey = apiKey;
+        existing.endpoint = endpoint;
       } else {
+        fresh.apiKey = apiKey;
+        fresh.endpoint = endpoint;
         gatesRef.current.set(endpoint, fresh);
       }
       refreshCapacity();
@@ -1476,6 +1537,14 @@ function useRoom(viewRef) {
     }
     const gate = gateFor(bot);
     if (!gate) return sendPrompt(bot, overrideText);
+    const shouldQueue = gate.pumping || gate.queue.length > 0 || await endpointBusy(bot, gate);
+    if (shouldQueue) {
+      enqueue(gate, { name: bot.name, bot, overrideText });
+      setStatuses((s) => ({ ...s, [bot.name]: 'queued…' }));
+      setNotice(`capacity: ${bot.name} queued (${gate.inflight.size}/${gate.max} in flight, ${gate.queue.length} waiting)`);
+      if (!gate.pumping) scheduleBusyPump(gate);
+      return true;
+    }
     if (!admit(gate, bot.name)) {
       enqueue(gate, { name: bot.name, bot, overrideText });
       setStatuses((s) => ({ ...s, [bot.name]: 'queued…' }));
@@ -2328,6 +2397,8 @@ function useRoom(viewRef) {
       dead = true;
       for (const t of reconnectTimersRef.current.values()) clearTimeout(t);
       reconnectTimersRef.current.clear();
+      for (const t of busyTimersRef.current.values()) clearTimeout(t);
+      busyTimersRef.current.clear();
       for (const b of clientsRef.current) { try { b.ws.close(); } catch {} }
     };
   }, []);

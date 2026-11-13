@@ -37,8 +37,9 @@ routing, skin-driven acknowledgements, mention tokenization, and capacity admiss
 (probe parsing, gate limits, FIFO queueing, and serial/parallel degradation), plus the
 reconnect policy (backoff, attempt budget, terminal-error classification), the status
 resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
-policy (retryable vs semantic errors, attempt budget). The suite is local-only and is not
-part of the published repository.
+policy (retryable vs semantic errors, attempt budget), and occupancy admission (live
+`/slots` probe plus foreign-occupancy accounting). The suite is local-only and is not part
+of the published repository.
 
 ## Versioning
 

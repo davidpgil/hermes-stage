@@ -139,8 +139,43 @@ export function pickResponders(bots, limit, preferredName) {
   return out;
 }
 
+export const LIVE_OCCUPANCY_TTL_MS = 3000;
+
+/**
+ * Live slot occupancy, so Stage can defer while another client (stock Hermes,
+ * Desktop) is already inside the brain. ``/slots`` is optional; a failure means
+ * "assume not busy" rather than blocking the room.
+ */
+export async function probeOccupancy(endpoint, apiKey, fetchImpl = globalThis.fetch) {
+  const base = normalizeEndpoint(endpoint);
+  if (!base) throw new Error('no model endpoint');
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  const info = await fetchJson(`${base}/slots`, headers, fetchImpl);
+  const arr = Array.isArray(info) ? info : [];
+  return {
+    processing: arr.filter((s) => s && s.is_processing).length,
+    slots: arr.length,
+    at: Date.now(),
+  };
+}
+
+/**
+ * Whether the endpoint still has a slot for this gate after accounting for other
+ * clients. ``live.processing`` counts every in-flight turn, including ours.
+ */
+export function foreignOccupancyLeavesRoom(gate, live) {
+  if (!gate) return true;
+  const own = gate.inflight.size;
+  const processing = Number(live && live.processing) || 0;
+  const slots = Number(live && live.slots) || gate.slots;
+  const others = Math.max(0, processing - own);
+  const free = Math.max(0, slots - own);
+  return others < free;
+}
+
 export function resolveReserved(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return DEFAULT_RESERVED_SLOTS;
   return Math.floor(n);
 }
+

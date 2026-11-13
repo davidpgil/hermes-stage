@@ -57,6 +57,8 @@ shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
   the focused member is preferred, then the default profile. Other members observe and a
   notice says so, and automatic peer rounds stop after one round.
 - **Parallel mode:** up to the gate limit members answer at once.
+- **Busy brain:** if another client occupies every slot, Stage defers (2 s retry, 60 s cap)
+  instead of piling onto the queue.
 - **Probe failure:** Stage assumes one slot and stays serial rather than flooding the brain.
 
 Queued turns appear as `⏸ N queued` on the status row and are dispatched as slots free.
