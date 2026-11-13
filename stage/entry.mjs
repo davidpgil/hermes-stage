@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.64.2';
+const STAGE_VERSION = '0.65.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -527,17 +527,17 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
     let glyph = '';
     let color = t.muted;
     let dim = false;
-    if (st === 'error' || st === 'offline') {
+    if (count > 0) {
       glyph = '●';
-      color = t.error;
-      dim = st === 'offline';
+      color = '#5aa9ff';
     } else if (st === 'not-ready') {
       glyph = '';
       color = 'gray';
       dim = true;
-    } else if (count > 0) {
+    } else if (st === 'error' || st === 'offline') {
       glyph = '●';
-      color = '#5aa9ff';
+      color = t.error;
+      dim = st === 'offline';
     } else if (st.startsWith('queued')) {
       glyph = '⏸';
       color = t.muted;
@@ -1875,6 +1875,9 @@ function useRoom(viewRef) {
               : b)));
           }
           machineActiveRef.current.delete(bot.name);
+          if (viewRef.current !== bot.name) {
+            setUnread((prev) => ({ ...prev, [bot.name]: (prev[bot.name] || 0) + 1 }));
+          }
           return;
         }
         if (isAutomationTurn(p.payload)) {
@@ -1883,6 +1886,9 @@ function useRoom(viewRef) {
           const id = newId('m');
           const entry = makeAutomationBubble(bot, p.payload, id, text);
           setLog((prev) => [...prev, { ...entry, done: true, parts: [{ kind: 'text', text }] }]);
+          if (viewRef.current !== bot.name) {
+            setUnread((prev) => ({ ...prev, [bot.name]: (prev[bot.name] || 0) + 1 }));
+          }
           return;
         }
         const completeTurnId = String(p.payload?.turn_id || '');
@@ -2885,7 +2891,11 @@ function Stage() {
     const target = next;
     if (target === 'stage') {
       if (viewRef.current !== 'stage') lastLensRef.current = viewRef.current;
-      if (defaultBot) room.setFocus(defaultBot.name);
+      const restore = lastLensRef.current || (defaultBot ? defaultBot.name : '');
+      if (restore) {
+        lastLensRef.current = restore;
+        room.setFocus(restore);
+      }
     } else {
       lastLensRef.current = target;
       room.clearUnread(target);
@@ -2906,8 +2916,14 @@ function Stage() {
   }, [view, room.focusName, room.bots, switchView]);
 
   const cycleView = React.useCallback((dir = 1) => {
-    const list = [...room.roster.map((r) => r.name), 'stage'];
-    if (!list.length) return;
+    const profiles = room.roster.map((r) => r.name);
+    if (!profiles.length) return;
+    if (view === 'stage') {
+      const target = lastLensRef.current || profiles[0];
+      if (target) switchView(target);
+      return;
+    }
+    const list = [...profiles, 'stage'];
     const idx = list.indexOf(view);
     const next = list[(idx + dir + list.length) % list.length];
     switchView(next);
@@ -2919,7 +2935,7 @@ function Stage() {
 
     if (view === 'stage') {
       if (dir === 'up' || dir === 'down' || dir === 'left') {
-        const target = lastLensRef.current || profiles[profiles.length - 1] || profiles[0];
+        const target = lastLensRef.current || profiles[0];
         if (!target) return false;
         switchView(target);
         return true;
@@ -3164,8 +3180,8 @@ function Stage() {
   }
   const primary = bots.find((b) => b.primary) || bots[0];
   const primaryName = primary ? primary.name : 'primary bot';
-  const focused = bots.find((b) => b.name === room.focusName) || primary;
-  const focusedName = focused ? focused.name : primaryName;
+  const focused = bots.find((b) => b.name === room.focusName) || null;
+  const focusedName = focused ? focused.name : (room.focusName || primaryName);
   const focusShort = String(focusedName).split(' · ')[0];
   const composerHint = view === 'stage'
     ? 'Type your message to the room here. Directional Key or Tab to switch'

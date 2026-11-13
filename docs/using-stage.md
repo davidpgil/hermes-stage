@@ -78,6 +78,9 @@ moves focus and does not wake the profile. Sleeping profiles render dim grey —
 marker — in the tabs, profile picker, and status board. A cold profile is not woken by
 room messages; `STAGE` messages go only to awake profiles.
 
+Leaving `STAGE` returns to the last selected profile lens; from a cold lens, the header
+and composer keep that profile's name instead of falling back to the default profile.
+
 ## Cron wake
 
 A non-LLM watcher reads each profile's `cron/jobs.json`, finds the next due job, and wakes
@@ -88,8 +91,9 @@ does. If the profile was already awake, it does nothing.
 ## Automation messages
 
 Automation events are shown as dim grey side notes in the room instead of being dropped.
-They are not normal bot turns: they do not trigger peer rounds and do not increment the
-profile's unread count. Hidden context-compaction rows remain skipped.
+They are not normal bot turns: they do not trigger peer rounds, but they do mark the
+profile unread at completion, so its tab shows the blue `●` if you are not viewing it.
+Hidden context-compaction rows remain skipped.
 
 This covers cron/internal notifications, background-process completions, and similar
 automation kinds. It does not by itself make a cron note arrive as a live WebSocket

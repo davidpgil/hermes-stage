@@ -23,8 +23,8 @@ transcript.
 - **Cron watcher** — reads profile `cron/jobs.json`, wakes a profile for its next job
   window, and releases it after an idle hold. Non-LLM; the gateway still runs the job.
 - **Automation side notes** — automation events are rendered as dim grey room notes, not
-  normal bot turns. They do not trigger peer rounds or unread counts; hidden context rows
-  remain skipped.
+  normal bot turns. They do not trigger peer rounds; at completion they mark the profile
+  unread so its tab shows the blue indicator. Hidden context rows remain skipped.
 - **Idle status refresh** — the focused bot's `session.info` is polled every 15 s while
   the room is idle, so the model/context row stays current without waiting for a turn.
 - **Screen-budgeted dialogs** — approval and profile-picker rows are deducted from the

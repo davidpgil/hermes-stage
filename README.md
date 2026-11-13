@@ -21,7 +21,7 @@ broadcast address.
   profile in the menu only changes focus; an explicit `@focus` or a mention wakes it.
 - Sleeping profiles render dim/grey in tabs, menus, and the status board.
 - Automation events (cron/internal notifications and process completions) appear as dim grey
-  side notes instead of being dropped.
+  side notes and mark the profile unread with a blue indicator.
 - Interrupted turns persist with a marker instead of being lost on a crash.
 - The model/context row refreshes while idle instead of only after a turn.
 - Dialogs fit the screen: long approval text truncates with a marker, and the profile
@@ -106,7 +106,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.64.2**
+Current release: **0.65.0**
 
 ## License
 

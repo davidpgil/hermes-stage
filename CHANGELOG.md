@@ -6,6 +6,22 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.65.0] - 2026-11-13
+
+### Added
+
+- Automation deliveries mark the profile unread at completion, so its tab shows the blue
+  `●` indicator when the profile is not the current lens.
+- Leaving `STAGE` returns to the last selected profile lens. A cold selected lens keeps
+  its own name in the panel header and composer instead of falling back to the default.
+
+### Verified
+
+- Automation mock: a delivered automation note produced a blue `●` on the tab.
+- Navigation mock: view Bot 01, leave to STAGE, then Tab returned to the Bot 01 lens with
+  `focus Bot 01`.
+- 66 local tests pass.
+
 ## [0.64.2] - 2026-11-13
 
 ### Fixed
