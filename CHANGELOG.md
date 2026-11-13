@@ -6,6 +6,24 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.0] - 2026-11-13
+
+### Added
+
+- Public profile speech feed: Stage reads non-default profiles’ `state.db` and mirrors final
+  assistant speech and cron notification text into the shared room. Tool rows, failed turns,
+  private user prompts, hidden rows, and Stage Room duplicates are skipped.
+- Profile speech and notification deliveries mark the profile unread, showing the blue tab
+  indicator. Cron notification machinery prefixes are stripped.
+
+### Verified
+
+- Scratch profile DB: assistant speech and cron notification rows included; tool rows,
+  failed turns, Stage Room rows, and private user prompts excluded.
+- Live Stage mock: profile speech appeared in the room and Bot 01 showed the blue `●`;
+  a live cron notification rendered as a dim machine note with its prefix removed.
+- Duplicate polling produced no duplicate bubbles. 66 existing tests pass.
+
 ## [0.65.0] - 2026-11-13
 
 ### Added

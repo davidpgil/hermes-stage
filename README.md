@@ -20,6 +20,9 @@ broadcast address.
 - Profiles load lazily: only the default profile connects at startup. Tabbing or picking a
   profile in the menu only changes focus; an explicit `@focus` or a mention wakes it.
 - Sleeping profiles render dim/grey in tabs, menus, and the status board.
+- Public profile speech from non-default profiles — final assistant text and cron
+  notification text — is mirrored into the room; tool calls, failed turns, and private
+  user prompts are skipped.
 - Automation events (cron/internal notifications and process completions) appear as dim grey
   side notes and mark the profile unread with a blue indicator.
 - Interrupted turns persist with a marker instead of being lost on a crash.
@@ -106,7 +109,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.65.0**
+Current release: **0.66.0**
 
 ## License
 

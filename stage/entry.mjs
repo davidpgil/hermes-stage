@@ -33,6 +33,7 @@ import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
 import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.mjs';
 import { CronWatcher, DEFAULT_WATCH_HOLD_MS } from './cron-watch.mjs';
 import { automationText, isAutomationTurn, makeAutomationBubble } from './automation.mjs';
+import { startProfileFeed } from './profile-feed.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -77,9 +78,12 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
     ? `${DEFAULT_HOME}/state/hermes-stage-room.json`
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
+const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
+  || `${dirname(ROOM_STATE_PATH)}/hermes-stage-feed.json`;
+const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.65.0';
+const STAGE_VERSION = '0.66.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1279,6 +1283,27 @@ function useRoom(viewRef) {
   const cronWatcherRef = React.useRef(null);
   const watchTimersRef = React.useRef(new Map());
 
+  const addProfileFeedBubble = React.useCallback((bubble) => {
+    setLog((prev) => (prev.some((b) => b.id === bubble.id) ? prev : [...prev, bubble]));
+  }, [setLog]);
+
+  const markProfileFeedUnread = React.useCallback((name) => {
+    if (!name || viewRef.current === name) return;
+    setUnread((prev) => ({ ...prev, [name]: (prev[name] || 0) + 1 }));
+  }, [viewRef, setUnread]);
+
+  React.useEffect(() => {
+    if (!roster.length) return;
+    const feed = startProfileFeed({
+      roster,
+      addBubble: addProfileFeedBubble,
+      markUnread: markProfileFeedUnread,
+      statePath: PROFILE_FEED_STATE_PATH,
+      intervalMs: PROFILE_FEED_MS,
+    });
+    return () => feed.stop();
+  }, [roster, addProfileFeedBubble, markProfileFeedUnread]);
+
   const flushPendingDeltas = React.useCallback(() => {
     if (deltaTimerRef.current) {
       clearTimeout(deltaTimerRef.current);
@@ -2250,6 +2275,7 @@ function useRoom(viewRef) {
           icon: profileIcon(p, null),
           connected: false,
           model: p.model || '',
+          home: p.path || `${DEFAULT_HOME}/profiles/${p.name}`,
         }));
         setRoster(rosterEntries);
         // The roster is known before any connection, so every tab starts gray/connecting.

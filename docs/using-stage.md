@@ -81,6 +81,22 @@ room messages; `STAGE` messages go only to awake profiles.
 Leaving `STAGE` returns to the last selected profile lens; from a cold lens, the header
 and composer keep that profile's name instead of falling back to the default profile.
 
+## Public profile speech
+
+Stage also makes each non-default profile’s public speech visible in the shared room. The
+plugin reads that profile’s `state.db` directly and imports:
+
+- final assistant text from the profile’s canonical `Bot Chat`;
+- final assistant text from cron sessions;
+- cron notification text, with the `[Cronjob …]` machinery prefix stripped.
+
+It skips tool rows, reasoning, failed turns, hidden rows, private user prompts, and the
+profile’s own `Hermes Stage Room` session rows (those are already in the shared room). New
+profile speech and notifications mark the profile unread, so its tab gets the blue `●`.
+
+The feed is plugin-local; it does not change gateway routing or systemd configuration.
+Polling interval: `HERMES_STAGE_PROFILE_FEED_MS` (default 15000, minimum 5000).
+
 ## Cron wake
 
 A non-LLM watcher reads each profile's `cron/jobs.json`, finds the next due job, and wakes
@@ -96,9 +112,8 @@ profile unread at completion, so its tab shows the blue `●` if you are not vie
 Hidden context-compaction rows remain skipped.
 
 This covers cron/internal notifications, background-process completions, and similar
-automation kinds. It does not by itself make a cron note arrive as a live WebSocket
-event; if the gateway only writes the note into history, Stage still needs a history
-ingestion path to show it live.
+automation kinds. The profile speech feed is the history-ingestion path for profile cron
+notes; gateway automation events still render when they arrive live.
 
 ## Reconnect
 

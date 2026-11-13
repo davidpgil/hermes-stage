@@ -25,6 +25,10 @@ transcript.
 - **Automation side notes** — automation events are rendered as dim grey room notes, not
   normal bot turns. They do not trigger peer rounds; at completion they mark the profile
   unread so its tab shows the blue indicator. Hidden context rows remain skipped.
+- **Public profile speech feed** — reads each non-default profile’s `state.db` for final
+  assistant speech and cron notifications. Tool calls, failed turns, private user prompts,
+  and Stage Room session duplicates are excluded. The feed is plugin-local and does not
+  alter gateway routing.
 - **Idle status refresh** — the focused bot's `session.info` is polled every 15 s while
   the room is idle, so the model/context row stays current without waiting for a turn.
 - **Screen-budgeted dialogs** — approval and profile-picker rows are deducted from the
