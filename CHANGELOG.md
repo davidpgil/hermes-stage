@@ -6,6 +6,28 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-11-13
+
+### Added
+
+- Lazy profile registry: only the default profile connects at startup. Other profiles
+  wake on focus, mention, or a due cron job; a message to a cold profile waits until it
+  is ready.
+- Non-LLM cron watcher (`stage/cron-watch.mjs`): reads each profile's `cron/jobs.json`,
+  wakes the profile shortly before its next due job, holds it for five minutes, and
+  releases it while idle. It never calls a model or runs the cron job.
+
+### Changed
+
+- Removed the eager startup fan-out that bootstrapped every profile at once.
+- Removed the unused connection-pool helper.
+
+### Verified
+
+- 15-profile mock: one connection at startup; a second profile woke only after
+  `@focus`; another due cron job woke a profile without focus.
+- 62 local tests pass.
+
 ## [0.61.0] - 2026-11-13
 
 ### Removed

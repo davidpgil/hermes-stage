@@ -13,7 +13,7 @@ stage/capacity.mjs     Capacity probe and admission gates
 stage/reconnect.mjs    Bounded reconnect policy
 stage/status.mjs       Status-board source resolution
 stage/rpc-retry.mjs    Retry policy for idempotent RPC reads
-stage/pool.mjs         Bounded connection parallelism
+stage/cron-watch.mjs   Non-LLM cron due-time watcher
 stage/persistence.mjs  Transcript persistence and interrupted-turn marking
 stage/status-refresh.mjs  Idle status-refresh policy
 stage/package.json     JavaScript package metadata
@@ -41,7 +41,7 @@ routing, skin-driven acknowledgements, mention tokenization, and capacity admiss
 reconnect policy (backoff, attempt budget, terminal-error classification), the status
 resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
 policy (retryable vs semantic errors, attempt budget), occupancy admission (live
-`/slots` probe plus foreign-occupancy accounting), connection-pool bounds, persistence
+`/slots` probe plus foreign-occupancy accounting), lazy profile loading, persistence
 (interrupted-turn marking), the idle status-refresh policy, and dialog sizing
 (approval truncation and picker height budgets). The suite is local-only and is not part
 of the published repository.

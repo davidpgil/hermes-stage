@@ -61,17 +61,18 @@ Stage also checks live occupancy (`/slots`, `is_processing`) before admitting a 
 another client occupies every slot, the Stage turn is deferred and retried every 2 s;
 after 60 s it submits anyway with a notice, so the room cannot starve.
 
-## Connection parallelism
+## Lazy profile loading
 
-```sh
-HERMES_STAGE_CONNECT_PARALLEL=4 hermes stage
-```
+Only the default profile connects at startup. A profile tab is a placeholder until you
+focus it, mention it, or its cron watcher wakes it. This avoids bootstrapping every
+profile at launch and removes the startup RPC stampede.
 
-Stage opens up to N profile connections at once (default 4, maximum 8). Each connection
-mints a single-use ticket by running `gateway_bootstrap.py`, so parallelism is the startup
-lever: for 15 profiles, measured cold startup was ~12 s at 2 versus ~4 s at 4. Higher
-values trade total CPU and per-connection latency for lower wall time; set it to 2 if the
-machine feels loaded.
+## Cron watcher
+
+The plugin reads each profile's `cron/jobs.json` and computes the next due job. It wakes
+that profile only in the job window, holds it for 5 minutes, then releases it again if it
+is idle. This is non-LLM; it reads the schedule and never invokes a model or runs the job.
+The multiplex gateway still owns and runs the cron job itself.
 
 ## Reconnect
 

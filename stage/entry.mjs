@@ -29,9 +29,9 @@ import {
 import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
 import { resolveStatusSource, modelForDisplay } from './status.mjs';
 import { retryRpc } from './rpc-retry.mjs';
-import { resolveConnectParallelism } from './pool.mjs';
 import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
 import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.mjs';
+import { CronWatcher, DEFAULT_WATCH_HOLD_MS } from './cron-watch.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -64,7 +64,6 @@ export function acknowledgementFor(bot) {
   return phrase || '*nods*';
 }
 
-const MAX_PARALLEL_PROFILES = resolveConnectParallelism(process.env.HERMES_STAGE_CONNECT_PARALLEL);
 const RPC_TIMEOUT_MS = 60000;
 const RESERVED_SLOTS = resolveReserved(process.env.HERMES_STAGE_RESERVED_SLOTS);
 const RECONNECT_MAX = Math.max(0, Number(process.env.HERMES_STAGE_RECONNECT_MAX) || DEFAULT_MAX_ATTEMPTS);
@@ -79,7 +78,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.61.0';
+const STAGE_VERSION = '0.62.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1283,6 +1282,14 @@ function useRoom(viewRef) {
   const [capacity, setCapacity] = React.useState({ mode: 'serial', slots: 1, ctx: 0 });
   const statusesRef = React.useRef({});
   statusesRef.current = statuses;
+  const rosterRef = React.useRef([]);
+  rosterRef.current = roster;
+  const focusNameRef = React.useRef('');
+  focusNameRef.current = focusName;
+  const ensureProfileRef = React.useRef(null);
+  const sleepProfileRef = React.useRef(null);
+  const cronWatcherRef = React.useRef(null);
+  const watchTimersRef = React.useRef(new Map());
 
   const flushPendingDeltas = React.useCallback(() => {
     if (deltaTimerRef.current) {
@@ -2102,6 +2109,7 @@ function useRoom(viewRef) {
 
     const handleDisconnect = (bot, err) => {
       if (dead || !bot) return;
+      if (bot.sleeping) return;
       bot.offline = true;
       const activeId = activeRef.current.get(bot.name);
       if (activeId) setLog((prev) => prev.filter((b) => b.id !== activeId));
@@ -2208,7 +2216,7 @@ function useRoom(viewRef) {
         // The roster is known before any connection, so every tab starts gray/connecting.
         setStatuses((s) => {
           const next = { ...s };
-          for (const r of rosterEntries) next[r.name] = 'connecting';
+          for (const r of rosterEntries) next[r.name] = r.isDefault ? 'connecting' : 'not-ready';
           return next;
         });
 
@@ -2307,83 +2315,111 @@ function useRoom(viewRef) {
         setBotList(baseBots.slice());
         const primaryBot = baseBots.find((c) => c.primary) || baseBots[0];
         if (primaryBot) setFocusName((f) => f || primaryBot.name);
-        if (!dead) setOnline(true);
 
-        // Connect the remaining profiles with bounded concurrency; each one appears
-        // as it arrives, but the gateway is not hit with all 15 at once.
-        const otherRows = selected.filter((p) => !p.is_default);
-        const slots = new Array(otherRows.length).fill(null);
-        const rebuildBots = () => {
+        // Lazy registry: only the default profile is connected at startup. Every
+        // other profile wakes on focus, mention, or a due cron job.
+        const profileMap = new Map(selected.map((p) => [p.name, p]));
+        const displayMap = new Map(selected.map((p) => [displayName(p, raw.skin, defaultAgent), p]));
+        const wakePromises = new Map();
+
+        const ensureProfile = async (profileName) => {
+          if (dead) return null;
+          const row = profileMap.get(profileName) || displayMap.get(profileName);
+          if (!row) return null;
+          const existing = clientsRef.current.find((b) => b.profile === row.name);
+          if (existing) return existing;
+          if (wakePromises.has(row.name)) return wakePromises.get(row.name);
+          const name = displayName(row, raw.skin, defaultAgent);
+          const promise = (async () => {
+            setStatuses((s) => ({ ...s, [name]: 'connecting…' }));
+            let bot = null;
+            try {
+              const h2 = { bot: null };
+              const home = row.path || `${DEFAULT_HOME}/profiles/${row.name}`;
+              const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2), makeClose(h2));
+              const botTheme = buildTheme(raw2.skin);
+              bot = {
+                ...raw2,
+                name,
+                profile: row.name,
+                color: botTheme.label,
+                borderColor: botTheme.bubbleBorder || botTheme.border,
+                sessionId: null,
+                preambled: false,
+                primary: false,
+                seenSeq: 0,
+                icon: profileIcon(row, raw2.skin),
+                home,
+                holder: h2,
+                modelHint: row.model || '',
+                sleeping: false,
+              };
+              h2.bot = bot;
+              await startSession(bot);
+              if (dead) {
+                try { bot.ws.close(); } catch {}
+                return null;
+              }
+              clientsRef.current = [...clientsRef.current, bot];
+              setBotList(clientsRef.current.slice());
+              markConnected(bot);
+              setStatuses((s) => ({ ...s, [name]: 'ready' }));
+              return bot;
+            } catch (e) {
+              if (bot) { try { bot.ws.close(); } catch {} }
+              if (!dead) {
+                setStatuses((s) => ({ ...s, [name]: 'not-ready' }));
+                setNotice(`${name}: ${e.message}`);
+              }
+              return null;
+            } finally {
+              wakePromises.delete(row.name);
+            }
+          })();
+          wakePromises.set(row.name, promise);
+          return promise;
+        };
+        ensureProfileRef.current = ensureProfile;
+
+        const sleepProfile = (profileName) => {
           if (dead) return;
-          const ordered = baseBots.concat(slots.filter(Boolean));
-          clientsRef.current = ordered.slice();
-          setBotList(ordered.slice());
+          const bot = clientsRef.current.find((b) => b.profile === profileName || b.name === profileName);
+          if (!bot || bot.primary || bot.sleeping) return;
+          if (bot.name === focusNameRef.current) return;
+          if (pendingOf(bot.name) > 0 || activeRef.current.has(bot.name)) return;
+          bot.sleeping = true;
+          bot.offline = true;
+          try { bot.ws.close(); } catch {}
+          clientsRef.current = clientsRef.current.filter((b) => b !== bot);
+          setBotList(clientsRef.current.slice());
+          setRoster((prev) => prev.map((r) => r.profile === bot.profile ? { ...r, connected: false } : r));
+          setStatuses((s) => ({ ...s, [bot.name]: 'not-ready' }));
         };
+        sleepProfileRef.current = sleepProfile;
 
-        let activeConnections = 0;
-        const waitingSlots = [];
-        const acquireSlot = () => new Promise((resolve) => {
-          if (activeConnections < MAX_PARALLEL_PROFILES) {
-            activeConnections += 1;
-            resolve();
-          } else {
-            waitingSlots.push(resolve);
-          }
-        });
-        const releaseSlot = () => {
-          activeConnections = Math.max(0, activeConnections - 1);
-          const next = waitingSlots.shift();
-          if (next) {
-            activeConnections += 1;
-            next();
-          }
-        };
-
-        const settled = await Promise.allSettled(otherRows.map(async (p, index) => {
-          await acquireSlot();
-          try {
-            const h2 = { bot: null };
-            const home = p.path || `${DEFAULT_HOME}/profiles/${p.name}`;
-            const raw2 = await connectRaw(home, makeHandler(h2), makeRequest(h2), makeClose(h2));
-            const botTheme = buildTheme(raw2.skin);
-            const name = displayName(p, raw2.skin, defaultAgent);
-            const bot = {
-              ...raw2,
-              name,
-              profile: p.name,
-              color: botTheme.label,
-              borderColor: botTheme.bubbleBorder || botTheme.border,
-              sessionId: null,
-              preambled: false,
-              primary: false,
-              seenSeq: 0,
-              icon: profileIcon(p, raw2.skin),
-              home,
-              holder: h2,
-              modelHint: p.model || '',
-            };
-            h2.bot = bot;
-            await startSession(bot);
-            slots[index] = bot;
-            markConnected(bot);
-            rebuildBots();
-            return bot;
-          } finally {
-            releaseSlot();
-          }
-        }));
-
-        for (let i = 0; i < settled.length; i++) {
-          const result = settled[i];
-          if (result.status === 'rejected' && !dead) {
-            const entry = rosterEntries.find((r) => r.profile === otherRows[i].name);
-            if (entry) setStatuses((s) => ({ ...s, [entry.name]: 'not-ready' }));
-            setNotice(`skipped ${otherRows[i].name}: ${result.reason && result.reason.message ? result.reason.message : result.reason}`);
-          }
+        const watcherProfiles = selected
+          .filter((p) => !p.is_default)
+          .map((p) => ({ name: p.name, home: p.path || `${DEFAULT_HOME}/profiles/${p.name}` }));
+        if (watcherProfiles.length) {
+          const watcher = new CronWatcher({
+            profiles: watcherProfiles,
+            onWake: async (profile) => {
+              if (dead) return;
+              if (clientsRef.current.some((b) => b.profile === profile.name)) return;
+              const bot = await ensureProfile(profile.name);
+              if (!bot || dead) return;
+              if (watchTimersRef.current.has(profile.name)) clearTimeout(watchTimersRef.current.get(profile.name));
+              const timer = setTimeout(() => {
+                watchTimersRef.current.delete(profile.name);
+                sleepProfile(profile.name);
+              }, DEFAULT_WATCH_HOLD_MS);
+              watchTimersRef.current.set(profile.name, timer);
+            },
+            onError: (e) => { if (!dead) setNotice(`cron watch: ${e.message}`); },
+          });
+          cronWatcherRef.current = watcher;
+          watcher.start();
         }
-        rebuildBots();
-        const readyPrimary = bots.find((c) => c.primary) || bots[0];
-        if (readyPrimary) setFocusName((f) => f || readyPrimary.name);
         if (!dead) setOnline(true);
       } catch (e) {
         if (!dead) setNotice(`room init failed: ${e.message}`);
@@ -2392,6 +2428,9 @@ function useRoom(viewRef) {
 
     return () => {
       dead = true;
+      cronWatcherRef.current?.stop();
+      for (const t of watchTimersRef.current.values()) clearTimeout(t);
+      watchTimersRef.current.clear();
       for (const t of reconnectTimersRef.current.values()) clearTimeout(t);
       reconnectTimersRef.current.clear();
       for (const t of busyTimersRef.current.values()) clearTimeout(t);
@@ -2429,21 +2468,30 @@ function useRoom(viewRef) {
       c.name.toLowerCase() === q ||
       c.name.toLowerCase().split(' · ')[0].toLowerCase() === q ||
       String(c.profile || '').toLowerCase() === q);
-    return hit.length === 1 ? hit[0] : null;
+    if (hit.length === 1) return { bot: hit[0], profile: hit[0].profile, name: hit[0].name, cold: false };
+    if (hit.length > 1) return null;
+    const row = rosterRef.current.find((r) =>
+      r.name.toLowerCase() === q ||
+      r.name.toLowerCase().split(' · ')[0].toLowerCase() === q ||
+      String(r.profile || '').toLowerCase() === q);
+    return row ? { bot: null, profile: row.profile, name: row.name, cold: true } : null;
   }, []);
 
   const cycleFocus = React.useCallback((dir = 1) => {
-    const list = clientsRef.current;
+    const list = rosterRef.current;
     if (!list.length) return;
-    let idx = list.findIndex((c) => c.name === focusName);
-    if (idx < 0) idx = list.findIndex((c) => c.primary);
+    let idx = list.findIndex((r) => r.name === focusName || r.profile === focusName);
+    if (idx < 0) idx = list.findIndex((r) => r.isDefault);
     if (idx < 0) idx = 0;
     const next = list[(idx + dir + list.length) % list.length];
     setFocusName(next.name);
+    ensureProfileRef.current?.(next.profile).catch(() => {});
   }, [focusName]);
 
   const setFocus = React.useCallback((name) => {
     setFocusName(name);
+    const row = rosterRef.current.find((r) => r.name === name || r.profile === name);
+    if (row) ensureProfileRef.current?.(row.profile).catch(() => {});
   }, []);
 
   const submit = React.useCallback(async (raw, defaultTarget) => {
@@ -2458,6 +2506,10 @@ function useRoom(viewRef) {
       }
       const hit = resolveMember(arg);
       if (!hit) { setNotice(`Unknown room member: ${arg}`); return false; }
+      if (hit.cold) {
+        const bot = await ensureProfileRef.current?.(hit.profile);
+        if (!bot) { setNotice(`${hit.name}: could not wake`); return false; }
+      }
       setFocusName(hit.name);
       return false;
     }
@@ -2466,37 +2518,36 @@ function useRoom(viewRef) {
     let bad = null;
 
     body = body.replace(/(^|\s)@([A-Za-z0-9_-]+)(?=\s|$)/g, (_full, pre, name) => {
-      const q = name.toLowerCase();
-      const hit = clientsRef.current.filter((c) =>
-        c.name.toLowerCase() === q ||
-        c.name.toLowerCase().split(' · ')[0].toLowerCase() === q ||
-        String(c.profile || '').toLowerCase() === q);
-      if (hit.length !== 1) {
-        bad = hit.length ? `Ambiguous room member: @${q}` : `Unknown room member: @${q}`;
+      const hit = resolveMember(name);
+      if (!hit) {
+        bad = `Unknown or ambiguous room member: @${name.toLowerCase()}`;
         return `${pre}@${name}`;
       }
-      resolved.push(hit[0]);
-      return `${pre}${hit[0].name}`;
+      resolved.push(hit);
+      return `${pre}${hit.name}`;
     });
     body = body.replace(/\u0001AT\u0001/g, '@').trim();
 
     if (bad) { setNotice(bad); return false; }
 
-    if (defaultTarget && !clientsRef.current.some((c) => c.name === defaultTarget)) {
-      setNotice(`${defaultTarget} is still connecting; wait for its tab to light up.`);
-      return false;
+    let targetBot = null;
+    if (resolved.length) {
+      const picked = resolved[0];
+      targetBot = picked.bot || await ensureProfileRef.current?.(picked.profile);
+      if (!targetBot) { setNotice(`${picked.name}: could not wake`); return false; }
+    } else if (defaultTarget) {
+      const row = rosterRef.current.find((r) => r.name === defaultTarget || r.profile === defaultTarget);
+      if (!row) { setNotice(`Unknown room member: ${defaultTarget}`); return false; }
+      targetBot = clientsRef.current.find((c) => c.name === defaultTarget || c.profile === row.profile)
+        || await ensureProfileRef.current?.(row.profile);
+      if (!targetBot) { setNotice(`${row.name}: could not wake`); return false; }
     }
 
     let targets;
-    if (resolved.length) {
-      // Only the first @name is the addressee. Later @names stay as names in the
-      // content so a chain like "ask @member-a to ask @member-b to ask @member-c" works.
-      targets = [resolved[0]];
+    if (targetBot) {
+      targets = [targetBot];
       if (!body) body = 'Hello.';
       // @mention is a one-time route. It does not change the focused profile.
-    } else if (defaultTarget) {
-      const lensBot = clientsRef.current.find((c) => c.name === defaultTarget);
-      targets = [lensBot];
     } else {
       // A bare room message reaches the profiles that are awake.
       targets = clientsRef.current.slice();

@@ -32,8 +32,9 @@ hermes plugins enable hermes-stage
 hermes stage
 ```
 
-The default profile connects first and establishes the room. The other profiles
-join from `profiles.list`; the roster is not hardcoded.
+The default profile connects first and establishes the room. Other profiles are listed
+from `profiles.list` but stay cold until focused, mentioned, or woken by a due cron job.
+The roster is not hardcoded.
 
 To restrict or order the roster:
 

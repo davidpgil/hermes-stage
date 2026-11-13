@@ -17,7 +17,8 @@ broadcast address.
 - Bounded reconnect after a gateway restart, so an open room recovers itself.
 - A status board that stays visible before profiles connect, showing the configured model.
 - Failures are surfaced as notices instead of silently swallowed.
-- Parallel profile connections so a large roster starts faster.
+- Profiles load lazily: only the default profile connects at startup; others wake on focus,
+  mention, or a due cron job.
 - Interrupted turns persist with a marker instead of being lost on a crash.
 - The model/context row refreshes while idle instead of only after a turn.
 - Dialogs fit the screen: long approval text truncates with a marker, and the profile
@@ -102,7 +103,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.61.0**
+Current release: **0.62.0**
 
 ## License
 

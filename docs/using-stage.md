@@ -67,6 +67,19 @@ shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
 
 Queued turns appear as `⏸ N queued` on the status row and are dispatched as slots free.
 
+## Profile loading
+
+Only the default profile connects at startup. Other profile tabs are placeholders until
+you focus them, mention them, or the cron watcher wakes them. A cold profile is not
+woken by room messages; `STAGE` messages go only to awake profiles.
+
+## Cron wake
+
+A non-LLM watcher reads each profile's `cron/jobs.json`, finds the next due job, and wakes
+that profile shortly before the job window. It holds the profile for 5 minutes and then
+releases it if it is idle. The watcher does not run the cron job; the multiplex gateway
+does. If the profile was already awake, it does nothing.
+
 ## Reconnect
 
 A dropped gateway connection is not fatal. Stage retries with backoff, re-creates the
