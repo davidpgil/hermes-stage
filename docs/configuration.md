@@ -78,7 +78,8 @@ machine feels loaded.
 If the gateway restarts or a profile socket drops, Stage reconnects with exponential
 backoff (1 s, 2 s, 4 s, … capped at 30 s) for up to `HERMES_STAGE_RECONNECT_MAX` attempts
 (default 8). Terminal bootstrap failures stop immediately. Reconnect opens a fresh
-session and re-registers the profile in the room.
+session and re-registers the profile in the room. A connection attempt that fails before
+the socket opens is handled and retried; it does not crash the room.
 
 ## RPC retries
 

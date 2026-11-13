@@ -77,7 +77,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.57.0';
+const STAGE_VERSION = '0.58.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -145,6 +145,10 @@ export async function connectRaw(home, onEvent, onRequest, onClose) {
     let settleReady;
     let settleReadyReject;
     const ready = new Promise((res, rej) => { settleReady = res; settleReadyReject = rej; });
+    // A connection that fails before 'open' rejects this promise while nothing is
+    // awaiting it yet; without a handler that is an unhandled rejection and kills
+    // the process during a reconnect attempt.
+    ready.catch(() => {});
     let readyDone = false;
     let readyPayload = {};
     let connected = false;
