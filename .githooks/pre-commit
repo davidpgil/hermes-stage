@@ -53,6 +53,20 @@ check_version 'stage/package-lock.json packages[""].version' "$lock_root_version
 check_version 'stage/entry.mjs STAGE_VERSION' "$entry_version"
 check_version 'README.md current version' "$readme_version"
 
+# Changelog is a required release surface, linked from the README and documented.
+if [ ! -f CHANGELOG.md ]; then
+  note 'changelog ERROR: CHANGELOG.md is missing'
+  fail=1
+fi
+if ! grep -qF 'CHANGELOG.md' README.md; then
+  note 'changelog ERROR: README.md must link to CHANGELOG.md'
+  fail=1
+fi
+if ! grep -qF 'CHANGELOG.md' docs/development.md; then
+  note 'changelog ERROR: docs/development.md must document CHANGELOG.md'
+  fail=1
+fi
+
 # The GitHub-facing README must stay a new-user guide, and the docs tree must
 # exist and be linked from it.
 required_docs=(
@@ -116,6 +130,24 @@ if printf '%s\n' "${staged[@]}" | grep -qE '^(stage/|plugin\.yaml$)'; then
   fi
   if ! printf '%s\n' "${staged[@]}" | grep -q '^docs/'; then
     note 'docs ERROR: code changes require a docs/ update staged in the same commit'
+    fail=1
+  fi
+fi
+
+# Code, release-surface, script, and hook changes must carry a changelog update.
+if printf '%s\n' "${staged[@]}" | grep -qE '^(stage/|plugin\.yaml$|scripts/|\.githooks/)'; then
+  if ! printf '%s\n' "${staged[@]}" | grep -qx 'CHANGELOG.md'; then
+    note 'changelog ERROR: code changes require CHANGELOG.md staged in the same commit'
+    fail=1
+  fi
+fi
+
+# A version bump must have a matching changelog entry.
+previous_plugin_version="$(git show HEAD:plugin.yaml 2>/dev/null | sed -n 's/^version: "\(.*\)"/\1/p' | head -n 1 || true)"
+if [ -n "$previous_plugin_version" ] && [ "$plugin_version" != "$previous_plugin_version" ]; then
+  changelog_staged="$(git show :CHANGELOG.md 2>/dev/null || true)"
+  if ! printf '%s\n' "$changelog_staged" | grep -qF "## [$plugin_version]"; then
+    note "changelog ERROR: no entry for version $plugin_version in CHANGELOG.md"
     fail=1
   fi
 fi

@@ -54,8 +54,16 @@ The release version must agree across:
 - `stage/package-lock.json`
 - `stage/entry.mjs` (`STAGE_VERSION`)
 - `README.md` (`Current release`)
+- `CHANGELOG.md` (entry for the current version)
 
-The pre-commit hook checks these values.
+The pre-commit hook checks these values and refuses a version bump without a matching
+changelog entry.
+
+## Changelog
+
+`CHANGELOG.md` is required. Every code, release-surface, script, or hook change must
+stage a changelog update in the same commit, and a version bump must add a
+`## [<version>]` section.
 
 ## Git hooks
 

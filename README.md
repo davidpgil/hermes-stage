@@ -96,6 +96,7 @@ therefore do not force every completed bubble to reconcile again.
 - [Architecture](docs/architecture.md)
 - [Development](docs/development.md)
 - [Security and disclosures](docs/security.md)
+- [Changelog](CHANGELOG.md) — release history.
 
 ## Version
 
