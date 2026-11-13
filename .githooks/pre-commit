@@ -26,6 +26,12 @@ for path in "${staged[@]}"; do
   fi
 done
 
+# Tests are local-only: they must never be committed or pushed to GitHub.
+if printf '%s\n' "${staged[@]}" | grep -Eq '(^|/)tests?/|\.test\.mjs$|\.spec\.mjs$'; then
+  note 'tests ERROR: tests are local-only and must not be committed to this repository'
+  fail=1
+fi
+
 # Version consistency across the public release surface.
 plugin_version="$(sed -n 's/^version: "\(.*\)"/\1/p' plugin.yaml | head -n 1)"
 package_version="$(node -p "require('./stage/package.json').version")"

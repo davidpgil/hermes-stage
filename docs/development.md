@@ -11,10 +11,14 @@ plugin.yaml            Plugin manifest and version
 stage/entry.mjs        Stage client
 stage/capacity.mjs     Capacity probe and admission gates
 stage/package.json     JavaScript package metadata
-stage/tests/           Helper tests
 scripts/               Installation, reset, and hook helpers
 .githooks/pre-commit   Tracked sanitization/docs gate
+.githooks/pre-push     Refuses pushing tests to GitHub
 ```
+
+Local test files live in `stage/tests/`. They are intentionally untracked and are
+never published: the pre-commit hook refuses staged test files, the pre-push hook
+refuses any ref whose tree contains them, and `.gitignore` keeps them out.
 
 ## Tests
 
@@ -27,7 +31,8 @@ git diff --check
 
 The tests cover delta assembly, tool-part updates, approval key dispatch and answer
 routing, skin-driven acknowledgements, mention tokenization, and capacity admission
-(probe parsing, gate limits, FIFO queueing, and serial/parallel degradation).
+(probe parsing, gate limits, FIFO queueing, and serial/parallel degradation). The suite
+is local-only and is not part of the published repository.
 
 ## Versioning
 
@@ -41,17 +46,19 @@ The release version must agree across:
 
 The pre-commit hook checks these values.
 
-## Git hook
+## Git hooks
 
-Enable the tracked hook once per checkout:
+Enable the tracked hooks once per checkout:
 
 ```sh
 scripts/install-hooks.sh
 ```
 
-The hook enforces:
+The hooks enforce:
 
 - no private paths, hostnames, credentials, or internal identifiers in staged content;
+- tests are local-only: the pre-commit hook refuses staged test files and the
+  pre-push hook refuses any ref whose tree contains them;
 - version consistency across the release surface;
 - a staged README update when code changes are staged;
 - at least one staged documentation update when code changes are staged;

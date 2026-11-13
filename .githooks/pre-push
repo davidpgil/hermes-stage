@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Refuse to upload local-only test files to GitHub.
+#
+# Tests live in stage/tests/ for local development and are intentionally not
+# part of the published plugin. The pre-commit hook refuses to stage them; this
+# hook is the second gate, so a --no-verify commit or an imported commit cannot
+# publish them either.
+#
+# The check inspects the tree of each ref being pushed, not its history: an old
+# commit that still contains a test cannot block every future push.
+set -euo pipefail
+
+fail=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_sha" in
+    0000000000000000000000000000000000000000) continue ;;
+  esac
+  if git ls-tree -r --name-only "$local_sha" | grep -Eq '(^|/)tests?/|\.test\.mjs$|\.spec\.mjs$'; then
+    printf 'push refused: tests are local-only and must not be uploaded to GitHub (%s)\n' "${remote_ref#refs/heads/}" >&2
+    fail=1
+  fi
+done
+exit "$fail"
