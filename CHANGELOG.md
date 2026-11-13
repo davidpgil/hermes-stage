@@ -6,6 +6,20 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.64.2] - 2026-11-13
+
+### Fixed
+
+- Mention parsing now accepts trailing punctuation: `@Shir,` routes to Shir only
+  instead of falling back to a room broadcast. The lookahead permits any non-handle
+  character after the name.
+
+### Verified
+
+- Mock: `@bot-01, hello` created a second connection and the room state recorded
+  `targets: ['Bot 01']` only.
+- 66 local tests pass.
+
 ## [0.64.1] - 2026-11-13
 
 ### Fixed

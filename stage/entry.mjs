@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.64.1';
+const STAGE_VERSION = '0.64.2';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -2550,7 +2550,7 @@ function useRoom(viewRef) {
     const resolved = [];
     let bad = null;
 
-    body = body.replace(/(^|\s)@([A-Za-z0-9_-]+)(?=\s|$)/g, (_full, pre, name) => {
+    body = body.replace(/(^|\s)@([A-Za-z0-9_-]+)(?=$|[^A-Za-z0-9_-])/g, (_full, pre, name) => {
       const hit = resolveMember(name);
       if (!hit) {
         bad = `Unknown or ambiguous room member: @${name.toLowerCase()}`;

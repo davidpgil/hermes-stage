@@ -106,7 +106,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.64.1**
+Current release: **0.64.2**
 
 ## License
 

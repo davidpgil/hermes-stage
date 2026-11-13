@@ -30,6 +30,8 @@ Peer discussion is capped at 3 rounds / 10 messages. Unknown or ambiguous
 
 Mentions are highlighted as blue text tokens only: `@name`. There is no background
 pill or bold treatment. `@everyone` and `@all` are not room addresses.
+A mention handle may be followed by punctuation, such as `@Shir,`; it routes to only
+that profile rather than broadcasting to the room.
 
 Bot bubbles that address a peer are left-aligned so room-directed messages read
 differently from ordinary replies. A normal bot reply is right-aligned.
