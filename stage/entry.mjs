@@ -30,6 +30,7 @@ import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } f
 import { resolveStatusSource, modelForDisplay } from './status.mjs';
 import { retryRpc } from './rpc-retry.mjs';
 import { resolveConnectParallelism } from './pool.mjs';
+import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -76,7 +77,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.56.0';
+const STAGE_VERSION = '0.57.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -106,13 +107,7 @@ function loadRoomState() {
     const raw = readFileSync(ROOM_STATE_PATH, 'utf8');
     const data = JSON.parse(raw);
     const list = Array.isArray(data) ? data : (data && Array.isArray(data.bubbles) ? data.bubbles : []);
-    return list
-      .filter((b) => b && typeof b === 'object'
-        && typeof b.id === 'string'
-        && typeof b.speaker === 'string'
-        && typeof b.text === 'string')
-      .map((b) => ({ ...b, done: true }))
-      .slice(-MAX_STATE_MESSAGES);
+    return restoreRoomBubbles(list, MAX_STATE_MESSAGES);
   } catch {
     return [];
   }
@@ -120,12 +115,7 @@ function loadRoomState() {
 
 function saveRoomState(bubbles) {
   try {
-    const clean = bubbles
-      .filter((b) => b && b.done !== false
-        && typeof b.id === 'string'
-        && typeof b.speaker === 'string'
-        && typeof b.text === 'string')
-      .slice(-MAX_STATE_MESSAGES);
+    const clean = serializeRoomBubbles(bubbles, MAX_STATE_MESSAGES);
     const dir = dirname(ROOM_STATE_PATH);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const tmp = `${ROOM_STATE_PATH}.tmp`;
@@ -976,7 +966,7 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
       h(Text, { color: borderColor }, topRule),
       h(Box, { flexDirection: 'column', paddingX: 1 },
         user ? null : h(Text, { color: t.label, bold: true, wrap: 'truncate-end' },
-          `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}`),
+          `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}${b.interrupted ? '  · interrupted' : ''}`),
         parts.map((part, i) => {
           if (part.kind === 'tool') {
             return renderToolPart(part, t, i, { cwd, width: Math.max(20, bubbleWidth - 4) });

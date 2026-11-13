@@ -54,7 +54,8 @@ degraded placeholder from the roster that shows the profile's configured model.
 ## Limitations
 
 - The room is simulated by the plugin, not Hermes Desktop's hosted group-room engine.
-- Persistence restores the transcript only.
+- Persistence restores the transcript only; an in-flight turn restores as a completed
+  bubble marked `· interrupted` rather than a spinner that can never finish.
 - `message_agent` is deliberately not used in Stage Room sessions.
 
 See also: [Development](development.md), [Security and disclosures](security.md).

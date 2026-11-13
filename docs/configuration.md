@@ -102,7 +102,8 @@ HERMES_STAGE_ROOM_STATE=/path/to/room.json hermes stage
 ```
 
 Persistence restores the transcript, not gateway sessions, approvals, queues, or
-unread state.
+unread state. A bubble that was still streaming when the room was saved is stored with an
+`interrupted` marker and restores as a completed bubble labelled `· interrupted`.
 
 ## Theme and colors
 
