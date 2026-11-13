@@ -6,6 +6,18 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.64.1] - 2026-11-13
+
+### Fixed
+
+- Sleeping profiles now use an explicit neutral gray instead of the theme's `t.muted`
+  (which was orange). The `○` marker was removed; cold tabs/menu rows are gray and dim.
+- A focused sleeping profile's status row is gray and non-bold rather than yellow.
+
+### Verified
+
+- Mock terminal output: cold tabs render with `\x1b[2m\x1b[90m` and no `○`; 66 tests pass.
+
 ## [0.64.0] - 2026-11-13
 
 ### Changed

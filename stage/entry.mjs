@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.64.0';
+const STAGE_VERSION = '0.64.1';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -532,8 +532,8 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
       color = t.error;
       dim = st === 'offline';
     } else if (st === 'not-ready') {
-      glyph = '○';
-      color = t.muted;
+      glyph = '';
+      color = 'gray';
       dim = true;
     } else if (count > 0) {
       glyph = '●';
@@ -1192,7 +1192,7 @@ function statusParts(name, runtime, status, t, live, tick, columns, tool, unread
     toolLabel: tool ? activeToolLabel(tool, Date.now()) : '',
     queuedLabel: queuedCount > 0 ? `⏸ ${queuedCount} queued` : '',
     capacityLabel,
-    color: String(status).startsWith('queued') ? t.muted : busy ? t.warn : t.muted,
+    color: status === 'not-ready' ? 'gray' : String(status).startsWith('queued') ? t.muted : busy ? t.warn : t.muted,
     dim: unavailable,
     width: Math.max(20, columns - 2),
   };
@@ -3239,25 +3239,30 @@ function Stage() {
   const hiddenNewer = scrollLine;
 
   const statusBar = h(Box, { marginTop: 0, height: maxStatusRows, flexDirection: 'column', width: Math.max(20, columns - 2), flexShrink: 0 },
-    ...statusRows.map((row) => h(Text, {
+    ...statusRows.map((row) => {
+      const titleColor = row.dim ? 'gray' : (row.focused ? 'yellow' : row.color);
+      const titleBold = row.focused && !row.dim;
+      const detailColor = row.dim ? 'gray' : row.color;
+      return h(Text, {
       key: row.key, wrap: 'truncate-end',
     },
-      row.icon ? h(Text, { color: row.focused ? 'yellow' : row.color, bold: row.focused, dimColor: row.dim }, `${row.icon}  `) : null,
-      h(Text, { color: row.focused ? 'yellow' : row.color, bold: row.focused, dimColor: row.dim }, row.profile),
-      h(Text, { color: row.focused ? 'yellow' : row.color, dimColor: row.dim }, ' · '),
-      h(Text, { color: row.focused ? 'yellow' : row.color, bold: row.focused, dimColor: row.dim }, row.model),
-      h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.contextLabel}`),
-      row.bar ? h(Text, { color: row.barColor, dimColor: row.dim }, ` · [${row.bar}] ${row.pctText}`) : null,
-      row.capacityLabel ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.capacityLabel}`) : null,
-      row.cacheHit ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.cacheHit}`) : null,
-      row.compressions ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.compressions}`) : null,
-      h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.latency}`),
-      h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.tps}`),
-      row.subagents ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.subagents}`) : null,
+      row.icon ? h(Text, { color: titleColor, bold: titleBold, dimColor: row.dim }, `${row.icon}  `) : null,
+      h(Text, { color: titleColor, bold: titleBold, dimColor: row.dim }, row.profile),
+      h(Text, { color: titleColor, dimColor: row.dim }, ' · '),
+      h(Text, { color: titleColor, bold: titleBold, dimColor: row.dim }, row.model),
+      h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.contextLabel}`),
+      row.bar ? h(Text, { color: row.dim ? 'gray' : row.barColor, dimColor: row.dim }, ` · [${row.bar}] ${row.pctText}`) : null,
+      row.capacityLabel ? h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.capacityLabel}`) : null,
+      row.cacheHit ? h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.cacheHit}`) : null,
+      row.compressions ? h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.compressions}`) : null,
+      h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.latency}`),
+      h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.tps}`),
+      row.subagents ? h(Text, { color: detailColor, dimColor: row.dim }, ` · ${row.subagents}`) : null,
       row.activity ? h(Text, { color: row.activityColor }, ` · ${row.activity}`) : null,
-      row.thinkingLabel ? h(Text, { color: t.muted }, `  ${row.thinkingLabel}`) : null,
-      row.toolLabel ? h(Text, { color: t.tool || t.accent }, `  ${row.toolLabel}`) : null,
-      row.queuedLabel ? h(Text, { color: t.muted }, `  ${row.queuedLabel}`) : null)));
+      row.thinkingLabel ? h(Text, { color: row.dim ? 'gray' : t.muted }, `  ${row.thinkingLabel}`) : null,
+      row.toolLabel ? h(Text, { color: row.dim ? 'gray' : (t.tool || t.accent) }, `  ${row.toolLabel}`) : null,
+      row.queuedLabel ? h(Text, { color: row.dim ? 'gray' : t.muted }, `  ${row.queuedLabel}`) : null);
+    }));
 
   return h(Box, { flexDirection: 'column', paddingX: 1, height: rows },
     h(Box, { flexDirection: 'column', flexShrink: 0 },
@@ -3355,9 +3360,9 @@ function Stage() {
             width: '100%',
           },
             h(Text, {
-              color: selected ? t.primary : current ? t.accent : (sleeping ? t.muted : t.text),
-              bold: selected,
-              dimColor: sleeping && !selected,
+              color: sleeping ? 'gray' : selected ? t.primary : current ? t.accent : t.text,
+              bold: selected && !sleeping,
+              dimColor: sleeping,
               wrap: 'truncate-end',
             }, `${prefix}${idx + 1}. ${option.name}`));
         })),
