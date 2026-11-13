@@ -15,8 +15,11 @@ transcript.
   `slots - reserved` turns at once, queues the rest, and degrades a room message to a
   single responder when only one slot is available. Live `/slots` occupancy is checked
   before admitting, so turns are deferred while another client holds the brain.
-- **Lazy profile registry** — only the default profile connects at startup; other profiles
-  wake on focus, mention, or a due cron job.
+- **Lazy profile registry** — only the default profile connects at startup. Tabbing or
+  selecting a profile in the menu changes the view/focus but does not wake it; an explicit
+  `@focus` command or a mention wakes it. A due cron job also wakes it.
+- **Dim sleeping profiles** — cold profiles render grey/dim in the tabs, profile picker,
+  and status board rather than as active or error states.
 - **Cron watcher** — reads profile `cron/jobs.json`, wakes a profile for its next job
   window, and releases it after an idle hold. Non-LLM; the gateway still runs the job.
 - **Automation side notes** — automation events are rendered as dim grey room notes, not

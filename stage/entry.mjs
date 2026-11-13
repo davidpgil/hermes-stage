@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.63.0';
+const STAGE_VERSION = '0.64.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -527,10 +527,14 @@ function StageTabs({ tabs, view, unread, statuses, t, columns, tick }) {
     let glyph = '';
     let color = t.muted;
     let dim = false;
-    if (st === 'error' || st === 'not-ready' || st === 'offline') {
+    if (st === 'error' || st === 'offline') {
       glyph = '●';
       color = t.error;
       dim = st === 'offline';
+    } else if (st === 'not-ready') {
+      glyph = '○';
+      color = t.muted;
+      dim = true;
     } else if (count > 0) {
       glyph = '●';
       color = '#5aa9ff';
@@ -2514,11 +2518,11 @@ function useRoom(viewRef) {
     if (idx < 0) idx = 0;
     const next = list[(idx + dir + list.length) % list.length];
     setFocusName(next.name);
-    ensureProfileRef.current?.(next.profile).catch(() => {});
   }, [focusName]);
 
-  const setFocus = React.useCallback((name) => {
+  const setFocus = React.useCallback((name, wake = false) => {
     setFocusName(name);
+    if (!wake) return;
     const row = rosterRef.current.find((r) => r.name === name || r.profile === name);
     if (row) ensureProfileRef.current?.(row.profile).catch(() => {});
   }, []);
@@ -2845,7 +2849,7 @@ function Stage() {
         room.setNotice(`Unknown room member: ${arg}`);
         return;
       }
-      room.setFocus(hit.name);
+      room.setFocus(hit.name, true);
       setLastProfile(hit.profile);
       setComposerText('', 0);
       return;
@@ -3343,6 +3347,7 @@ function Stage() {
               }, `${selected ? '▸ ' : '  '}‹ Back`));
           }
           const current = option.name === room.focusName;
+          const sleeping = !option.isBack && !option.connected;
           const prefix = selected ? '▸ ' : current ? '• ' : '  ';
           return h(Box, {
             key: option.profile,
@@ -3350,8 +3355,9 @@ function Stage() {
             width: '100%',
           },
             h(Text, {
-              color: selected ? t.primary : current ? t.accent : t.text,
+              color: selected ? t.primary : current ? t.accent : (sleeping ? t.muted : t.text),
               bold: selected,
+              dimColor: sleeping && !selected,
               wrap: 'truncate-end',
             }, `${prefix}${idx + 1}. ${option.name}`));
         })),

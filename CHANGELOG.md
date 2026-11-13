@@ -6,6 +6,22 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.64.0] - 2026-11-13
+
+### Changed
+
+- Tabbing across profile lenses and selecting a profile from the picker now only move
+  focus; they no longer wake a cold profile.
+- `@focus <name>` and mentions are the explicit wake actions; a due cron job can also
+  wake a profile.
+- Sleeping profiles render dim/grey in tabs, the profile picker, and the status board.
+
+### Verified
+
+- 15-profile mock: startup 1 connection; Tab left it at 1; picker selection left it at 1;
+  explicit `@focus bot-01` raised it to 2.
+- 66 local tests pass.
+
 ## [0.63.0] - 2026-11-13
 
 ### Added

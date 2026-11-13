@@ -70,8 +70,11 @@ Queued turns appear as `⏸ N queued` on the status row and are dispatched as sl
 ## Profile loading
 
 Only the default profile connects at startup. Other profile tabs are placeholders until
-you focus them, mention them, or the cron watcher wakes them. A cold profile is not
-woken by room messages; `STAGE` messages go only to awake profiles.
+you explicitly wake them with `@focus <name>` or mention them; a due cron job can also
+wake them. Tabbing through the profile lenses or selecting a profile from the menu only
+moves focus and does not wake the profile. Sleeping profiles render dim/grey in the tabs,
+profile picker, and status board. A cold profile is not woken by room messages; `STAGE`
+messages go only to awake profiles.
 
 ## Cron wake
 

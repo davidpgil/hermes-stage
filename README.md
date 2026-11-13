@@ -17,8 +17,9 @@ broadcast address.
 - Bounded reconnect after a gateway restart, so an open room recovers itself.
 - A status board that stays visible before profiles connect, showing the configured model.
 - Failures are surfaced as notices instead of silently swallowed.
-- Profiles load lazily: only the default profile connects at startup; others wake on focus,
-  mention, or a due cron job.
+- Profiles load lazily: only the default profile connects at startup. Tabbing or picking a
+  profile in the menu only changes focus; an explicit `@focus` or a mention wakes it.
+- Sleeping profiles render dim/grey in tabs, menus, and the status board.
 - Automation events (cron/internal notifications and process completions) appear as dim grey
   side notes instead of being dropped.
 - Interrupted turns persist with a marker instead of being lost on a crash.
@@ -105,7 +106,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.63.0**
+Current release: **0.64.0**
 
 ## License
 
