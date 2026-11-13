@@ -4,8 +4,8 @@ Hermes Stage is a terminal-based, multi-profile bot room for Hermes Agent. Runni
 `hermes stage` opens one shared transcript: the `STAGE` view shows the full room,
 while each profile tab is a lens over the same conversation.
 
-Messages are public room messages. Address one profile with `@name`, or the whole
-room with `@everyone`.
+Messages are public room messages. Address one profile with `@name`; there is no
+broadcast address.
 
 ## What it gives you
 
@@ -70,10 +70,10 @@ Use `HERMES_STAGE_PROFILES=all` for the full roster.
 ## Using the room
 
 - Type a message and press **Enter**.
-- A bare message in `STAGE` goes to every member. A bare message in a profile lens
+- A bare message in `STAGE` goes to every awake member. A bare message in a profile lens
   goes only to that focused member.
 - `@name` routes one message to that member without changing focus.
-- `@everyone` / `@all` addresses every member.
+- There is no broadcast address; cold profiles do not receive room messages.
 - **Tab / Shift+Tab** cycles profile lenses.
 - **Esc** returns to the `STAGE` room.
 - **Shift+Arrow** changes the focused profile.
@@ -102,7 +102,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.60.0**
+Current release: **0.61.0**
 
 ## License
 

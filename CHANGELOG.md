@@ -6,6 +6,18 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-11-13
+
+### Removed
+
+- `@everyone` / `@all` broadcast addressing. Room messages now reach only awake
+  profiles; cold profiles are not woken by a broadcast. Bot prompts no longer teach
+  the broadcast form.
+
+### Changed
+
+- Bare `STAGE` messages address the currently awake profiles only.
+
 ## [0.60.0] - 2026-11-13
 
 ### Changed

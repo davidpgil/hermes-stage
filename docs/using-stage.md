@@ -7,7 +7,7 @@ lenses over the same transcript, not separate private chats.
 
 - `STAGE` shows the unfiltered room.
 - Each profile tab filters the same log to that profile’s lens.
-- A bare message in `STAGE` goes to every member.
+- A bare message in `STAGE` goes to every awake member.
 - A bare message in a profile lens goes only to the focused member.
 - A bot reply containing `@name` is public and can pull that member into the next
   discussion round.
@@ -28,8 +28,8 @@ Peer discussion is capped at 3 rounds / 10 messages. Unknown or ambiguous
 
 ## Mentions and alignment
 
-Mentions are highlighted as blue text tokens only: `@name`, `@everyone`, and `@all`.
-There is no background pill or bold treatment.
+Mentions are highlighted as blue text tokens only: `@name`. There is no background
+pill or bold treatment. `@everyone` and `@all` are not room addresses.
 
 Bot bubbles that address a peer are left-aligned so room-directed messages read
 differently from ordinary replies. A normal bot reply is right-aligned.
@@ -53,7 +53,7 @@ acknowledgement, not an LLM-generated reply.
 Stage detects how many turns the model endpoint can serve at once, and the status row
 shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
 
-- **Serial mode (one slot):** a room message or `@everyone` is answered by one responder;
+- **Serial mode (one slot):** a room message is answered by one responder;
   the focused member is preferred, then the default profile. Other members observe and a
   notice says so, and automatic peer rounds stop after one round.
 - **Parallel mode:** up to the gate limit members answer at once.

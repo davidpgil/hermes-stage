@@ -53,7 +53,7 @@ the same brain; it defaults to 1. A gate never drops below one slot, so the room
 makes progress.
 
 When the most constrained endpoint admits only one turn, the room runs in **serial**
-mode: a room message or `@everyone` gets one responder (the focused member, or the default
+mode: a room message gets one responder (the focused member, or the default
 profile), other members observe, and automatic peer rounds stop after one round. With two
 or more admitted slots the room runs in **parallel** mode up to the gate limit.
 

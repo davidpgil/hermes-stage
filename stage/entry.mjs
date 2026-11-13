@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.60.0';
+const STAGE_VERSION = '0.61.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -363,7 +363,7 @@ const STAGE_FEATURES = [
   'More predictable behavior on remote or low-resource machines.',
   'One user-centered multi-profile room with a single shared transcript.',
   'Unfiltered room view plus per-profile lens views over the same log.',
-  'Public @name addressing, @everyone/@all, and opt-in peer pull-in.',
+  'Public @name addressing and opt-in peer pull-in.',
   'Bounded whole-room context per member, with each reply posted once.',
   'Concurrent turns for different profiles, with queued messages for a busy profile.',
   'Focused-profile status board: thinking/tool activity, queue state, and unread indicators.',
@@ -773,7 +773,7 @@ function mentionsMember(name, text) {
 
 export function mentionSegments(text) {
   const value = String(text || '');
-  const re = /@(?:everyone|all|[A-Za-z][\w-]*)(?![\w-])/g;
+  const re = /@(?!everyone\b|all\b)[A-Za-z][\w-]*/g;
   const segments = [];
   let last = 0;
   for (const match of value.matchAll(re)) {
@@ -950,8 +950,7 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
   const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
   const dots = b.done ? '' : '.'.repeat(1 + (tick % 3));
   const bubbleText = displayText == null ? (b.text || '') : displayText;
-  const asksPeer = !user && (b.asksPeer || /\B@(everyone|all)\b/i.test(bubbleText)
-    || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
+  const asksPeer = !user && (b.asksPeer || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
   const align = user || asksPeer ? 'flex-start' : 'flex-end';
 
   const borderColor = user ? t.accent : (b.borderColor || t.border);
@@ -1509,7 +1508,6 @@ function useRoom(viewRef) {
       'This is a serial group Discussion. Reply with one conversational message only when you have something new worth adding; if you have nothing new to add, reply exactly "(pass)". ' +
       `Mention a teammate by handle (for example "@${peerExample(bot)}") to pull them into the next round; do not repeat points already made. ` +
       'When the user asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
-      'To address every member at once, write "@everyone" (or "@all") in your reply; do not list several @ names. ' +
       'A bot reply containing "@Name" is a public room message that pulls that member into the next round; do not expect a private reply. ' +
       'Keep it short, answer only what was asked, and do not narrate delivery receipts.]\n\n' +
       `New room messages since your last turn${omitted ? ` (${omitted} earlier messages omitted)` : ''}:\n${delta || '(none)'}\n\n` +
@@ -1525,7 +1523,6 @@ function useRoom(viewRef) {
       'This is a serial group Discussion. Reply with one conversational message only when you have something new worth adding; if you have nothing new to add, reply exactly "(pass)". ' +
       `Mention a teammate by handle (for example "@${peerExample(bot)}") to pull them into the next round; do not repeat points already made. ` +
       'When the user asks you to ask or tell a teammate, write "@Name ..." so that member\'s turn runs. ' +
-      'To address every member at once, write "@everyone" (or "@all") in your reply; do not list several @ names. ' +
       'A bot reply containing "@Name" is a public room message that pulls that member into the next round; do not expect a private reply. ' +
       'Keep it short, answer only what was asked, and do not narrate delivery receipts.]\n\n' +
       `New room messages since your last turn${omitted ? ` (${omitted} earlier messages omitted)` : ''}:\n${delta || '(none)'}\n\n` +
@@ -1621,10 +1618,6 @@ function useRoom(viewRef) {
     return ok;
   }
 
-  function hasBroadcast(text) {
-    return /(?:^|[^A-Za-z0-9_])@(everyone|all)\b/i.test(String(text));
-  }
-
   function mentionedPeers(text, selfName) {
     const raw = String(text);
     const matches = [...raw.matchAll(/(?:^|[^A-Za-z0-9_])@([A-Za-z][\w-]*)\b/g)];
@@ -1644,9 +1637,6 @@ function useRoom(viewRef) {
   }
 
   function addressedPeers(text, selfName) {
-    if (hasBroadcast(text)) {
-      return clientsRef.current.filter((c) => c.name !== selfName);
-    }
     return mentionedPeers(text, selfName);
   }
 
@@ -2471,28 +2461,23 @@ function useRoom(viewRef) {
       setFocusName(hit.name);
       return false;
     }
-    const everyone = /(^|\s)@(everyone|all)\b/i.test(text);
     let body = text.replace(/\\@/g, '\u0001AT\u0001');
     const resolved = [];
     let bad = null;
 
-    if (!everyone) {
-      body = body.replace(/(^|\s)@([A-Za-z0-9_-]+)(?=\s|$)/g, (_full, pre, name) => {
-        const q = name.toLowerCase();
-        const hit = clientsRef.current.filter((c) =>
-          c.name.toLowerCase() === q ||
-          c.name.toLowerCase().split(' · ')[0].toLowerCase() === q ||
-          String(c.profile || '').toLowerCase() === q);
-        if (hit.length !== 1) {
-          bad = hit.length ? `Ambiguous room member: @${q}` : `Unknown room member: @${q}`;
-          return `${pre}@${name}`;
-        }
-        resolved.push(hit[0]);
-        return `${pre}${hit[0].name}`;
-      });
-    } else {
-      body = body.replace(/@(everyone|all)\b/gi, '').trim();
-    }
+    body = body.replace(/(^|\s)@([A-Za-z0-9_-]+)(?=\s|$)/g, (_full, pre, name) => {
+      const q = name.toLowerCase();
+      const hit = clientsRef.current.filter((c) =>
+        c.name.toLowerCase() === q ||
+        c.name.toLowerCase().split(' · ')[0].toLowerCase() === q ||
+        String(c.profile || '').toLowerCase() === q);
+      if (hit.length !== 1) {
+        bad = hit.length ? `Ambiguous room member: @${q}` : `Unknown room member: @${q}`;
+        return `${pre}@${name}`;
+      }
+      resolved.push(hit[0]);
+      return `${pre}${hit[0].name}`;
+    });
     body = body.replace(/\u0001AT\u0001/g, '@').trim();
 
     if (bad) { setNotice(bad); return false; }
@@ -2503,10 +2488,7 @@ function useRoom(viewRef) {
     }
 
     let targets;
-    if (everyone) {
-      targets = clientsRef.current.slice();
-      if (!body) body = 'Hello.';
-    } else if (resolved.length) {
+    if (resolved.length) {
       // Only the first @name is the addressee. Later @names stay as names in the
       // content so a chain like "ask @member-a to ask @member-b to ask @member-c" works.
       targets = [resolved[0]];
@@ -2516,7 +2498,7 @@ function useRoom(viewRef) {
       const lensBot = clientsRef.current.find((c) => c.name === defaultTarget);
       targets = [lensBot];
     } else {
-      // Desktop room semantics: a bare room message addresses everyone.
+      // A bare room message reaches the profiles that are awake.
       targets = clientsRef.current.slice();
       if (!body) body = 'Hello.';
     }
