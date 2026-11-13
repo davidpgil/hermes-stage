@@ -29,6 +29,7 @@ import {
 import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
 import { resolveStatusSource, modelForDisplay } from './status.mjs';
 import { retryRpc } from './rpc-retry.mjs';
+import { resolveConnectParallelism } from './pool.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -61,7 +62,7 @@ export function acknowledgementFor(bot) {
   return phrase || '*nods*';
 }
 
-const MAX_PARALLEL_PROFILES = 2;
+const MAX_PARALLEL_PROFILES = resolveConnectParallelism(process.env.HERMES_STAGE_CONNECT_PARALLEL);
 const RPC_TIMEOUT_MS = 60000;
 const RESERVED_SLOTS = resolveReserved(process.env.HERMES_STAGE_RESERVED_SLOTS);
 const RECONNECT_MAX = Math.max(0, Number(process.env.HERMES_STAGE_RECONNECT_MAX) || DEFAULT_MAX_ATTEMPTS);
@@ -75,7 +76,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.55.0';
+const STAGE_VERSION = '0.56.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;

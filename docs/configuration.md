@@ -61,6 +61,18 @@ Stage also checks live occupancy (`/slots`, `is_processing`) before admitting a 
 another client occupies every slot, the Stage turn is deferred and retried every 2 s;
 after 60 s it submits anyway with a notice, so the room cannot starve.
 
+## Connection parallelism
+
+```sh
+HERMES_STAGE_CONNECT_PARALLEL=4 hermes stage
+```
+
+Stage opens up to N profile connections at once (default 4, maximum 8). Each connection
+mints a single-use ticket by running `gateway_bootstrap.py`, so parallelism is the startup
+lever: for 15 profiles, measured cold startup was ~12 s at 2 versus ~4 s at 4. Higher
+values trade total CPU and per-connection latency for lower wall time; set it to 2 if the
+machine feels loaded.
+
 ## Reconnect
 
 If the gateway restarts or a profile socket drops, Stage reconnects with exponential

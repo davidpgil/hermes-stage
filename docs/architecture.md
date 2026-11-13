@@ -15,6 +15,8 @@ transcript.
   `slots - reserved` turns at once, queues the rest, and degrades a room message to a
   single responder when only one slot is available. Live `/slots` occupancy is checked
   before admitting, so turns are deferred while another client holds the brain.
+- **Bounded connect pool** — up to `HERMES_STAGE_CONNECT_PARALLEL` profiles connect at
+  once (default 4), so a large roster starts faster without stampeding the gateway.
 - **Bounded reconnect** — a dropped socket retries with exponential backoff, creates a
   fresh session, and rejoins the room; a terminal bootstrap failure stops immediately.
 

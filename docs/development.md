@@ -13,6 +13,7 @@ stage/capacity.mjs     Capacity probe and admission gates
 stage/reconnect.mjs    Bounded reconnect policy
 stage/status.mjs       Status-board source resolution
 stage/rpc-retry.mjs    Retry policy for idempotent RPC reads
+stage/pool.mjs         Bounded connection parallelism
 stage/package.json     JavaScript package metadata
 scripts/               Installation, reset, and hook helpers
 .githooks/pre-commit   Tracked sanitization/docs gate
@@ -37,9 +38,9 @@ routing, skin-driven acknowledgements, mention tokenization, and capacity admiss
 (probe parsing, gate limits, FIFO queueing, and serial/parallel degradation), plus the
 reconnect policy (backoff, attempt budget, terminal-error classification), the status
 resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
-policy (retryable vs semantic errors, attempt budget), and occupancy admission (live
-`/slots` probe plus foreign-occupancy accounting). The suite is local-only and is not part
-of the published repository.
+policy (retryable vs semantic errors, attempt budget), occupancy admission (live
+`/slots` probe plus foreign-occupancy accounting), and connection-pool bounds. The suite is
+local-only and is not part of the published repository.
 
 ## Versioning
 

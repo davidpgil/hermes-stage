@@ -17,6 +17,7 @@ room with `@everyone`.
 - Bounded reconnect after a gateway restart, so an open room recovers itself.
 - A status board that stays visible before profiles connect, showing the configured model.
 - Failures are surfaced as notices instead of silently swallowed.
+- Parallel profile connections so a large roster starts faster.
 - A configurable roster of Hermes profiles.
 
 ## Requirements
@@ -96,7 +97,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.55.0**
+Current release: **0.56.0**
 
 ## License
 
