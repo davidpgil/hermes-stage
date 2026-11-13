@@ -48,6 +48,19 @@ branding:
 The plugin falls back to `*nods*` when the field is absent. This is a client-side
 acknowledgement, not an LLM-generated reply.
 
+## Capacity fallback
+
+Stage detects how many turns the model endpoint can serve at once, and the status row
+shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
+
+- **Serial mode (one slot):** a room message or `@everyone` is answered by one responder;
+  the focused member is preferred, then the default profile. Other members observe and a
+  notice says so, and automatic peer rounds stop after one round.
+- **Parallel mode:** up to the gate limit members answer at once.
+- **Probe failure:** Stage assumes one slot and stays serial rather than flooding the brain.
+
+Queued turns appear as `⏸ N queued` on the status row and are dispatched as slots free.
+
 ## Tool calls and approvals
 
 Tool calls are persisted in the transcript, not only in the status bar. A tool row

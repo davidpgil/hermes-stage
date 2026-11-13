@@ -38,6 +38,25 @@ colors:
 `branding.pass_ack` is used when the profile chooses not to speak. If it is absent,
 Stage uses the generic fallback `*nods*`.
 
+## Capacity and admission control
+
+Stage probes each profile's model endpoint (`/props` and `/slots`) and admits at most
+`slots - reserved` turns per endpoint at once. The probe result is cached for 30 seconds.
+If the probe fails, Stage assumes one slot and stays serial.
+
+```sh
+HERMES_STAGE_RESERVED_SLOTS=1 hermes stage
+```
+
+`HERMES_STAGE_RESERVED_SLOTS` keeps slots free for stock Hermes or other clients sharing
+the same brain; it defaults to 1. A gate never drops below one slot, so the room always
+makes progress.
+
+When the most constrained endpoint admits only one turn, the room runs in **serial**
+mode: a room message or `@everyone` gets one responder (the focused member, or the default
+profile), other members observe, and automatic peer rounds stop after one round. With two
+or more admitted slots the room runs in **parallel** mode up to the gate limit.
+
 ## Persistence
 
 The completed room transcript is stored at:

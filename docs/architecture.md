@@ -11,6 +11,9 @@ transcript.
 - **Profile lenses** — tabs that render a filtered view of the same log.
 - **Serial discussion** — addressed members take turns; peer mentions run additional
   rounds, capped at 3 rounds / 10 messages.
+- **Capacity gates** — one admission gate per model endpoint. A gate admits
+  `slots - reserved` turns at once, queues the rest, and degrades a room message to a
+  single responder when only one slot is available.
 
 ## Event flow
 
@@ -36,6 +39,8 @@ tabs are not separate sessions; they are lens views over the shared room state.
 - Completed bubbles are memoized, so a spinner tick or another profile's stream
   does not reconcile every completed transcript bubble.
 - Room-state writes use compact JSON rather than pretty-printed JSON.
+- Admission is capacity-aware: the endpoint's `/props` slot count sizes the gate, so
+  queued turns are dispatched as slots free instead of flooding one brain.
 - Room context limits and discussion caps are unchanged.
 
 ## Limitations

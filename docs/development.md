@@ -5,14 +5,15 @@ This page covers repository layout, tests, release versions, and the pre-commit 
 ## Repository layout
 
 ```text
-README.md             New-user guide
-docs/                 Documentation
-plugin.yaml           Plugin manifest and version
-stage/entry.mjs       Stage client
-stage/package.json    JavaScript package metadata
-stage/tests/          Helper tests
-scripts/              Installation, reset, and hook helpers
-.githooks/pre-commit  Tracked sanitization/docs gate
+README.md              New-user guide
+docs/                  Documentation
+plugin.yaml            Plugin manifest and version
+stage/entry.mjs        Stage client
+stage/capacity.mjs     Capacity probe and admission gates
+stage/package.json     JavaScript package metadata
+stage/tests/           Helper tests
+scripts/               Installation, reset, and hook helpers
+.githooks/pre-commit   Tracked sanitization/docs gate
 ```
 
 ## Tests
@@ -25,7 +26,8 @@ git diff --check
 ```
 
 The tests cover delta assembly, tool-part updates, approval key dispatch and answer
-routing, skin-driven acknowledgements, and mention tokenization.
+routing, skin-driven acknowledgements, mention tokenization, and capacity admission
+(probe parsing, gate limits, FIFO queueing, and serial/parallel degradation).
 
 ## Versioning
 

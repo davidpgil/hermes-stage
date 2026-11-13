@@ -21,6 +21,10 @@ import { pathToFileURL } from 'node:url';
 import React from 'react';
 import { render, Box, Text, useApp, useInput, useBoxMetrics, useWindowSize } from 'ink';
 import stringWidth from 'string-width';
+import {
+  normalizeEndpoint, probeCapacity, makeGate, admit, release as releaseGate,
+  enqueue, pump, roomMode, responderLimit, pickResponders, resolveReserved,
+} from './capacity.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -55,13 +59,15 @@ export function acknowledgementFor(bot) {
 
 const MAX_PARALLEL_PROFILES = 2;
 const RPC_TIMEOUT_MS = 60000;
+const RESERVED_SLOTS = resolveReserved(process.env.HERMES_STAGE_RESERVED_SLOTS);
+const CAPACITY_TTL_MS = 30000;
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
     ? `${DEFAULT_HOME}/state/hermes-stage-room.json`
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.50.39';
+const STAGE_VERSION = '0.51.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1114,7 +1120,7 @@ function ctxBarColor(pct, t) {
   return t.ok;
 }
 
-function statusParts(name, runtime, status, t, live, tick, columns, tool, unreadCount = 0, thinking = false, queuedCount = 0) {
+function statusParts(name, runtime, status, t, live, tick, columns, tool, unreadCount = 0, thinking = false, queuedCount = 0, capacityInfo = null) {
   const u = (runtime && runtime.usage) || {};
   const profile = fitText(name.split(' · ')[0], 18);
   const model = fitText(runtime && runtime.model
@@ -1150,6 +1156,9 @@ function statusParts(name, runtime, status, t, live, tick, columns, tool, unread
     ? `⛓ ${u.active_subagents}`
     : '';
   const spinner = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧'][tick % 8];
+  const capacityLabel = capacityInfo && capacityInfo.max
+    ? `cap ${capacityInfo.max}/${capacityInfo.slots}${capacityInfo.mode === 'serial' ? ' serial' : ''}`
+    : '';
   const unavailable = status === 'not-ready' || status === 'offline';
   const busy = status !== 'ready' && status !== 'error' && !unavailable;
 
@@ -1186,6 +1195,7 @@ function statusParts(name, runtime, status, t, live, tick, columns, tool, unread
     thinkingLabel: thinking ? '◇ Thinking…' : '',
     toolLabel: tool ? activeToolLabel(tool, Date.now()) : '',
     queuedLabel: queuedCount > 0 ? `⏸ ${queuedCount} queued` : '',
+    capacityLabel,
     color: String(status).startsWith('queued') ? t.muted : busy ? t.warn : t.muted,
     dim: unavailable,
     width: Math.max(20, columns - 2),
@@ -1251,6 +1261,10 @@ function useRoom(viewRef) {
   const [thinking, setThinking] = React.useState({});
   const [focusName, setFocusName] = React.useState('');
   const [theme, setTheme] = React.useState(null);
+  const gatesRef = React.useRef(new Map());
+  const capacityCacheRef = React.useRef(new Map());
+  const capacityModeRef = React.useRef('serial');
+  const [capacity, setCapacity] = React.useState({ mode: 'serial', slots: 1, ctx: 0 });
 
   const flushPendingDeltas = React.useCallback(() => {
     if (deltaTimerRef.current) {
@@ -1333,6 +1347,75 @@ function useRoom(viewRef) {
     });
   };
 
+  function gateFor(bot) {
+    return bot && bot.endpoint ? gatesRef.current.get(bot.endpoint) : null;
+  }
+
+  function pumpGate(gate) {
+    if (!gate) return;
+    const items = pump(gate, (i) => i.bot && !i.bot.offline);
+    for (const item of items) {
+      setStatuses((s) => ({ ...s, [item.name]: 'waiting…' }));
+      sendPrompt(item.bot, item.overrideText);
+    }
+  }
+
+  function releaseSlot(bot) {
+    const gate = gateFor(bot);
+    if (!gate) return;
+    releaseGate(gate, bot.name);
+    pumpGate(gate);
+  }
+
+  function refreshCapacity() {
+    const list = [...gatesRef.current.values()];
+    if (!list.length) return;
+    const mode = roomMode(gatesRef.current);
+    capacityModeRef.current = mode;
+    setCapacity({
+      mode,
+      slots: Math.min(...list.map((g) => g.slots)),
+      ctx: list.reduce((n, g) => (g.ctx ? Math.min(n || g.ctx, g.ctx) : n), 0),
+    });
+  }
+
+  async function registerCapacity(bot) {
+    try {
+      const cfg = await bot.rpc('config.get', { key: 'full' });
+      const conf = (cfg && cfg.config) || {};
+      const endpoint = normalizeEndpoint(conf?.model?.base_url || '');
+      if (!endpoint) return;
+      bot.endpoint = endpoint;
+      const providerName = conf?.model?.default || '';
+      const apiKey = (conf.providers && conf.providers[providerName] && conf.providers[providerName].api_key) || '';
+      let cap = capacityCacheRef.current.get(endpoint);
+      if (!cap || Date.now() - cap.at > CAPACITY_TTL_MS) {
+        try {
+          const probed = await probeCapacity(endpoint, apiKey);
+          cap = { ...probed, at: Date.now(), failed: false };
+        } catch (e) {
+          cap = { slots: 1, ctx: 0, at: Date.now(), failed: true, error: e.message };
+        }
+        capacityCacheRef.current.set(endpoint, cap);
+      }
+      bot.capacity = cap;
+      const fresh = makeGate(cap.slots, RESERVED_SLOTS);
+      const existing = gatesRef.current.get(endpoint);
+      if (existing) {
+        existing.slots = fresh.slots;
+        existing.max = fresh.max;
+      } else {
+        gatesRef.current.set(endpoint, fresh);
+      }
+      refreshCapacity();
+      if (cap.failed) {
+        setNotice(`capacity probe failed for ${endpoint}; assuming 1 slot`);
+      }
+    } catch {
+      // Capacity is an optimization. A failure must never break the room.
+    }
+  }
+
   React.useEffect(() => {
     if (!streaming) return undefined;
     const id = setInterval(() => setTick((t) => t + 1), 400);
@@ -1377,6 +1460,27 @@ function useRoom(viewRef) {
   }
 
   async function promptMember(bot, overrideText) {
+    if (!bot) return false;
+    if (bot.offline) {
+      pendingRef.current.set(bot.name, Math.max(0, (pendingRef.current.get(bot.name) || 1) - 1));
+      syncPending();
+      autoTurnRef.current.delete(bot.name);
+      setNotice(`${bot.name} is offline`);
+      setStatuses((s) => ({ ...s, [bot.name]: 'offline' }));
+      return false;
+    }
+    const gate = gateFor(bot);
+    if (!gate) return sendPrompt(bot, overrideText);
+    if (!admit(gate, bot.name)) {
+      enqueue(gate, { name: bot.name, bot, overrideText });
+      setStatuses((s) => ({ ...s, [bot.name]: 'queued…' }));
+      setNotice(`capacity: ${gate.inflight.size}/${gate.max} in flight — ${bot.name} queued`);
+      return true;
+    }
+    return sendPrompt(bot, overrideText);
+  }
+
+  async function sendPrompt(bot, overrideText) {
     if (bot.offline) {
       pendingRef.current.set(bot.name, Math.max(0, (pendingRef.current.get(bot.name) || 1) - 1));
       syncPending();
@@ -1408,6 +1512,7 @@ function useRoom(viewRef) {
       setNotice(`${bot.name}: ${e.message}`);
       setStatuses((s) => ({ ...s, [bot.name]: bot.offline ? 'offline' : 'ready' }));
       if (d.active && d.remaining === 0) advanceDiscussion();
+      releaseSlot(bot);
       return false;
     }
   }
@@ -1499,10 +1604,11 @@ function useRoom(viewRef) {
       const citedAt = d.citedAt.get(peer.name) || 0;
       return lastPost <= citedAt;
     });
-    if (!next.length || d.round + 1 >= MAX_ROUNDS) {
+    const maxRounds = capacityModeRef.current === 'serial' ? 1 : MAX_ROUNDS;
+    if (!next.length || d.round + 1 >= maxRounds) {
       d.active = false;
-      if (d.round + 1 >= MAX_ROUNDS && next.length) {
-        setNotice(`Discussion stopped at ${MAX_ROUNDS} rounds.`);
+      if (d.round + 1 >= maxRounds && next.length) {
+        setNotice(`Discussion stopped at ${maxRounds} round${maxRounds === 1 ? '' : 's'}.`);
       }
       return;
     }
@@ -1681,6 +1787,7 @@ function useRoom(viewRef) {
         const id = activeRef.current.get(bot.name);
         if (!id) {
           setStatuses((s) => ({ ...s, [bot.name]: remaining > 0 ? 'queued…' : 'ready' }));
+          releaseSlot(bot);
           if (remaining === 0) drainQueue(bot);
           return;
         }
@@ -1761,6 +1868,7 @@ function useRoom(viewRef) {
           }
           if (d.remaining === 0) advanceDiscussion();
         }
+        releaseSlot(bot);
         if (remaining === 0) drainQueue(bot);
         return;
       }
@@ -1908,6 +2016,7 @@ function useRoom(viewRef) {
           d.remaining = Math.max(0, d.remaining - 1);
           if (d.remaining === 0) advanceDiscussion();
         }
+        releaseSlot(bot);
       }
     };
 
@@ -1965,6 +2074,7 @@ function useRoom(viewRef) {
         d.remaining = Math.max(0, d.remaining - 1);
         if (d.remaining === 0) advanceDiscussion();
       }
+      releaseSlot(bot);
     };
 
     const makeClose = (holder) => (err) => handleDisconnect(holder.bot, err);
@@ -2046,6 +2156,7 @@ function useRoom(viewRef) {
               const info = await bot.rpc('session.info', { session_id: bot.sessionId });
               if (!dead) setRuntimeFor(bot, info);
             } catch {}
+            await registerCapacity(bot);
           })();
           return bot;
         };
@@ -2272,6 +2383,16 @@ function useRoom(viewRef) {
       return false;
     }
 
+    // Capacity degradation: never fan a room message out to more members than the
+    // brain can serve in parallel. Serial mode (one slot) admits exactly one responder.
+    if (gatesRef.current.size) {
+      const limit = responderLimit(targets.length, gatesRef.current);
+      if (targets.length > limit) {
+        targets = pickResponders(targets, limit, focusName);
+        setNotice(`capacity ${capacityModeRef.current}: ${targets.length} responder(s) — other members observe`);
+      }
+    }
+
     const busyTargets = targets.filter((b) => pendingOf(b.name) > 0);
     const freeTargets = targets.filter((b) => pendingOf(b.name) <= 0);
 
@@ -2317,7 +2438,7 @@ function useRoom(viewRef) {
     return true;
   }, [focusName, cycleFocus, resolveMember]);
 
-  return { bubbles, statuses, notice, setNotice, tick, online, submit, approvals, respond, runtimes, liveMetrics, focusName, cycleFocus, setFocus, roster, theme, bots: botList, tools, thinking, unread, clearUnread, queues, pending };
+  return { bubbles, statuses, notice, setNotice, tick, online, submit, approvals, respond, runtimes, liveMetrics, focusName, cycleFocus, setFocus, roster, theme, bots: botList, tools, thinking, unread, clearUnread, queues, pending, gates: gatesRef.current, capacity };
 }
 
 function Stage() {
@@ -2807,7 +2928,11 @@ function Stage() {
   const statusBots = focused ? [focused] : [];
   const statusRows = statusBots.map((b) => {
     const queuedCount = (room.queues[b.name] || 0) + Math.max(0, (room.pending[b.name] || 0) - 1);
-    const parts = statusParts(b.name, room.runtimes[b.name], room.statuses[b.name] || 'ready', t, room.liveMetrics[b.name], room.tick, columns, room.tools[b.name], room.unread[b.name] || 0, room.thinking[b.name], queuedCount);
+    const gate = room.gates && b.endpoint ? room.gates.get(b.endpoint) : null;
+    const capacityInfo = gate
+      ? { max: gate.max, slots: gate.slots, mode: gate.max <= 1 ? 'serial' : 'parallel' }
+      : null;
+    const parts = statusParts(b.name, room.runtimes[b.name], room.statuses[b.name] || 'ready', t, room.liveMetrics[b.name], room.tick, columns, room.tools[b.name], room.unread[b.name] || 0, room.thinking[b.name], queuedCount, capacityInfo);
     const anchor = b.name === statusAnchorName;
     return {
       key: b.name,
@@ -2876,6 +3001,7 @@ function Stage() {
       h(Text, { color: row.focused ? 'yellow' : row.color, bold: row.focused, dimColor: row.dim }, row.model),
       h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.contextLabel}`),
       row.bar ? h(Text, { color: row.barColor, dimColor: row.dim }, ` · [${row.bar}] ${row.pctText}`) : null,
+      row.capacityLabel ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.capacityLabel}`) : null,
       row.cacheHit ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.cacheHit}`) : null,
       row.compressions ? h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.compressions}`) : null,
       h(Text, { color: row.color, dimColor: row.dim }, ` · ${row.latency}`),

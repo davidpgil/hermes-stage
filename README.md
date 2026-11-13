@@ -13,6 +13,7 @@ room with `@everyone`.
 - Profile tabs that act as display lenses over the same transcript.
 - Tool calls, diffs, and approval cards visible in the transcript.
 - A focused status board for each profile.
+- Capacity-aware turn admission so a room never floods the model endpoint.
 - A configurable roster of Hermes profiles.
 
 ## Requirements
@@ -92,7 +93,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.50.39**
+Current release: **0.51.0**
 
 ## License
 
