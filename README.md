@@ -15,6 +15,7 @@ room with `@everyone`.
 - A focused status board for each profile.
 - Capacity-aware turn admission so a room never floods the model endpoint.
 - Bounded reconnect after a gateway restart, so an open room recovers itself.
+- A status board that stays visible before profiles connect, showing the configured model.
 - A configurable roster of Hermes profiles.
 
 ## Requirements
@@ -94,7 +95,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.52.0**
+Current release: **0.53.0**
 
 ## License
 

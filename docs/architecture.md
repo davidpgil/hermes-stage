@@ -33,6 +33,8 @@ session approval therefore keeps its actual choice and lets the tool complete.
 
 Stage uses Ink with a fixed transcript viewport and incremental repainting. Profile
 tabs are not separate sessions; they are lens views over the shared room state.
+The status board always renders one row: a connected bot when one resolves, otherwise a
+degraded placeholder from the roster that shows the profile's configured model.
 
 ## Performance
 

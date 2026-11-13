@@ -68,6 +68,13 @@ profile's session, and returns the profile to the room. The status row shows
 `connecting…` during attempts and `offline` only after the retry budget is exhausted.
 `HERMES_STAGE_RECONNECT_MAX` (default 8) sets that budget.
 
+## Status board
+
+The status row never disappears. If no profile is connected yet, Stage renders the first
+roster entry as a degraded placeholder (`not-ready`) and shows that profile's configured
+model, so the room still names the brain it will use. Runtime model data replaces the
+configured value once a session reports it.
+
 ## Tool calls and approvals
 
 Tool calls are persisted in the transcript, not only in the status bar. A tool row

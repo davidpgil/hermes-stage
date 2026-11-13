@@ -26,6 +26,7 @@ import {
   enqueue, pump, roomMode, responderLimit, pickResponders, resolveReserved,
 } from './capacity.mjs';
 import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
+import { resolveStatusSource, modelForDisplay } from './status.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -69,7 +70,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.52.0';
+const STAGE_VERSION = '0.53.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1122,12 +1123,10 @@ function ctxBarColor(pct, t) {
   return t.ok;
 }
 
-function statusParts(name, runtime, status, t, live, tick, columns, tool, unreadCount = 0, thinking = false, queuedCount = 0, capacityInfo = null) {
+function statusParts(name, runtime, status, t, live, tick, columns, tool, unreadCount = 0, thinking = false, queuedCount = 0, capacityInfo = null, modelHint = '') {
   const u = (runtime && runtime.usage) || {};
   const profile = fitText(name.split(' · ')[0], 18);
-  const model = fitText(runtime && runtime.model
-    ? runtime.model.replace(/^.*\//, '')
-    : '—', 24);
+  const model = fitText(modelForDisplay(runtime, { modelHint }), 24);
   const max = Number(u.context_max) || 0;
   const used = Number(u.context_used) || 0;
   const total = Number(u.total) || 0;
@@ -2138,6 +2137,7 @@ function useRoom(viewRef) {
           isDefault: !!p.is_default,
           icon: profileIcon(p, null),
           connected: false,
+          model: p.model || '',
         }));
         setRoster(rosterEntries);
         // The roster is known before any connection, so every tab starts gray/connecting.
@@ -2221,6 +2221,7 @@ function useRoom(viewRef) {
           defaultBot.skin = raw.skin;
           defaultBot.profile = selected.find((p) => p.is_default).name;
           defaultBot.icon = profileIcon(selected.find((p) => p.is_default), raw.skin);
+          defaultBot.modelHint = selected.find((p) => p.is_default).model || '';
           defaultBot.primary = true;
           holder.bot = defaultBot;
           bots.push(await startSession(defaultBot));
@@ -2286,6 +2287,7 @@ function useRoom(viewRef) {
               icon: profileIcon(p, raw2.skin),
               home,
               holder: h2,
+              modelHint: p.model || '',
             };
             h2.bot = bot;
             await startSession(bot);
@@ -2982,14 +2984,19 @@ function Stage() {
 
   const statusAnchor = primary;
   const statusAnchorName = statusAnchor ? statusAnchor.name : focusedName;
-  const statusBots = focused ? [focused] : [];
+  const statusSource = resolveStatusSource(bots, room.roster, room.focusName);
+  const statusBots = statusSource ? [statusSource] : [];
   const statusRows = statusBots.map((b) => {
     const queuedCount = (room.queues[b.name] || 0) + Math.max(0, (room.pending[b.name] || 0) - 1);
     const gate = room.gates && b.endpoint ? room.gates.get(b.endpoint) : null;
     const capacityInfo = gate
       ? { max: gate.max, slots: gate.slots, mode: gate.max <= 1 ? 'serial' : 'parallel' }
       : null;
-    const parts = statusParts(b.name, room.runtimes[b.name], room.statuses[b.name] || 'ready', t, room.liveMetrics[b.name], room.tick, columns, room.tools[b.name], room.unread[b.name] || 0, room.thinking[b.name], queuedCount, capacityInfo);
+    const runtime = b.placeholder
+      ? { model: b.modelHint }
+      : (room.runtimes[b.name] || (b.modelHint ? { model: b.modelHint } : undefined));
+    const status = b.placeholder ? 'not-ready' : (room.statuses[b.name] || 'ready');
+    const parts = statusParts(b.name, runtime, status, t, room.liveMetrics[b.name], room.tick, columns, room.tools[b.name], room.unread[b.name] || 0, room.thinking[b.name], queuedCount, capacityInfo, b.modelHint || '');
     const anchor = b.name === statusAnchorName;
     return {
       key: b.name,

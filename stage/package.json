@@ -1,6 +1,6 @@
 {
   "name": "hermes-stage",
-  "version": "0.52.0",
+  "version": "0.53.0",
   "private": true,
   "type": "module",
   "description": "Hermes Stage - multi-speaker Ink chat host over the canonical Hermes gateway",
