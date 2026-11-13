@@ -27,6 +27,7 @@ import {
 } from './capacity.mjs';
 import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
 import { resolveStatusSource, modelForDisplay } from './status.mjs';
+import { retryRpc } from './rpc-retry.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -70,7 +71,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.53.0';
+const STAGE_VERSION = '0.54.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1696,7 +1697,7 @@ function useRoom(viewRef) {
         bot.rpc('approval.received', {
           session_id: bot.sessionId,
           request_id: requestId,
-        }).catch(() => {});
+        }).catch((e) => setNotice(`${bot.name}: approval ack failed — ${e.message}`));
       } catch {}
       setNotice(`${bot.name}: approval required`);
     };
@@ -1854,11 +1855,9 @@ function useRoom(viewRef) {
           delete next[bot.name];
           return next;
         });
-        try {
-          bot.rpc('session.info', { session_id: bot.sessionId })
-            .then((info) => setRuntimeFor(bot, info))
-            .catch(() => {});
-        } catch {}
+        retryRpc(() => bot.rpc('session.info', { session_id: bot.sessionId }))
+          .then((info) => setRuntimeFor(bot, info))
+          .catch((e) => setNotice(`${bot.name}: model data unavailable — ${e.message}`));
         autoTurnRef.current.delete(bot.name);
         const d = roundRef.current;
         if (d.active && d.current.has(bot.name) && bot.discId === d.id) {
@@ -2161,17 +2160,25 @@ function useRoom(viewRef) {
           // are background hydration steps. Awaiting them here delayed the
           // profile's connected state when the gateway was slow.
           (async () => {
-            try { await bot.rpc('client.capabilities', { server_requests: true }); } catch {}
             try {
-              const pendingApprovals = await bot.rpc('approval.pending', { session_id: bot.sessionId });
+              await retryRpc(() => bot.rpc('client.capabilities', { server_requests: true }));
+            } catch (e) {
+              if (!dead) setNotice(`${bot.name}: capabilities unavailable — ${e.message}`);
+            }
+            try {
+              const pendingApprovals = await retryRpc(() => bot.rpc('approval.pending', { session_id: bot.sessionId }));
               for (const approval of pendingApprovals.approvals || []) {
                 handleApprovalRequest(bot, approval, 'pending');
               }
-            } catch {}
+            } catch (e) {
+              if (!dead) setNotice(`${bot.name}: pending approvals unavailable — ${e.message}`);
+            }
             try {
-              const info = await bot.rpc('session.info', { session_id: bot.sessionId });
+              const info = await retryRpc(() => bot.rpc('session.info', { session_id: bot.sessionId }));
               if (!dead) setRuntimeFor(bot, info);
-            } catch {}
+            } catch (e) {
+              if (!dead) setNotice(`${bot.name}: model data unavailable — ${e.message}`);
+            }
             await registerCapacity(bot);
           })();
           return bot;

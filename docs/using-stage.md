@@ -73,7 +73,8 @@ profile's session, and returns the profile to the room. The status row shows
 The status row never disappears. If no profile is connected yet, Stage renders the first
 roster entry as a degraded placeholder (`not-ready`) and shows that profile's configured
 model, so the room still names the brain it will use. Runtime model data replaces the
-configured value once a session reports it.
+configured value once a session reports it. If runtime data is unavailable, Stage shows a
+notice instead of silently dropping the failure.
 
 ## Tool calls and approvals
 

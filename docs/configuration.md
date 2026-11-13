@@ -64,6 +64,13 @@ backoff (1 s, 2 s, 4 s, … capped at 30 s) for up to `HERMES_STAGE_RECONNECT_MA
 (default 8). Terminal bootstrap failures stop immediately. Reconnect opens a fresh
 session and re-registers the profile in the room.
 
+## RPC retries
+
+Idempotent reads (`session.info`, `client.capabilities`, `approval.pending`) retry once
+on a transport timeout or socket error and surface a notice if they still fail. Writes
+(`prompt.submit`, `session.create`) are never retried, because a retry would duplicate a
+turn or a session.
+
 ## Persistence
 
 The completed room transcript is stored at:

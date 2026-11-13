@@ -12,6 +12,7 @@ stage/entry.mjs        Stage client
 stage/capacity.mjs     Capacity probe and admission gates
 stage/reconnect.mjs    Bounded reconnect policy
 stage/status.mjs       Status-board source resolution
+stage/rpc-retry.mjs    Retry policy for idempotent RPC reads
 stage/package.json     JavaScript package metadata
 scripts/               Installation, reset, and hook helpers
 .githooks/pre-commit   Tracked sanitization/docs gate
@@ -34,9 +35,10 @@ git diff --check
 The tests cover delta assembly, tool-part updates, approval key dispatch and answer
 routing, skin-driven acknowledgements, mention tokenization, and capacity admission
 (probe parsing, gate limits, FIFO queueing, and serial/parallel degradation), plus the
-reconnect policy (backoff, attempt budget, terminal-error classification), and the status
-resolver (focused/primary/placeholder and configured-model fallback). The suite is
-local-only and is not part of the published repository.
+reconnect policy (backoff, attempt budget, terminal-error classification), the status
+resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
+policy (retryable vs semantic errors, attempt budget). The suite is local-only and is not
+part of the published repository.
 
 ## Versioning
 

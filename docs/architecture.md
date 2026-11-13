@@ -20,8 +20,9 @@ transcript.
 ## Event flow
 
 The client handles turn events, tool events, approvals, and status changes from the
-gateway. Tool calls are persisted as transcript parts. Approval requests are shown as
-cards and answered by profile and gateway source.
+gateway. Idempotent reads retry once on transport failure and surface a notice; writes
+and session creation are never retried. Tool calls are persisted as transcript parts.
+Approval requests are shown as cards and answered by profile and gateway source.
 
 ## Approval settlement
 
