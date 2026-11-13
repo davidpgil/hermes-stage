@@ -25,6 +25,7 @@ import {
   normalizeEndpoint, probeCapacity, makeGate, admit, release as releaseGate,
   enqueue, pump, roomMode, responderLimit, pickResponders, resolveReserved,
 } from './capacity.mjs';
+import { backoffDelay, isTerminalError, attemptAllowed, DEFAULT_MAX_ATTEMPTS } from './reconnect.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -60,6 +61,7 @@ export function acknowledgementFor(bot) {
 const MAX_PARALLEL_PROFILES = 2;
 const RPC_TIMEOUT_MS = 60000;
 const RESERVED_SLOTS = resolveReserved(process.env.HERMES_STAGE_RESERVED_SLOTS);
+const RECONNECT_MAX = Math.max(0, Number(process.env.HERMES_STAGE_RECONNECT_MAX) || DEFAULT_MAX_ATTEMPTS);
 const CAPACITY_TTL_MS = 30000;
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
@@ -67,7 +69,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.51.0';
+const STAGE_VERSION = '0.52.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1264,6 +1266,9 @@ function useRoom(viewRef) {
   const gatesRef = React.useRef(new Map());
   const capacityCacheRef = React.useRef(new Map());
   const capacityModeRef = React.useRef('serial');
+  const reconnectAttemptsRef = React.useRef(new Map());
+  const reconnectTimersRef = React.useRef(new Map());
+  const reconnectRef = React.useRef(null);
   const [capacity, setCapacity] = React.useState({ mode: 'serial', slots: 1, ctx: 0 });
 
   const flushPendingDeltas = React.useCallback(() => {
@@ -2075,6 +2080,7 @@ function useRoom(viewRef) {
         if (d.remaining === 0) advanceDiscussion();
       }
       releaseSlot(bot);
+      if (!dead) reconnectRef.current?.(bot);
     };
 
     const makeClose = (holder) => (err) => handleDisconnect(holder.bot, err);
@@ -2083,9 +2089,19 @@ function useRoom(viewRef) {
       try {
         // Default connection first: it gives us the roster and doubles as the primary bot.
         const holder = { bot: null };
-        const raw = await connectRaw(DEFAULT_HOME, makeHandler(holder), makeRequest(holder), makeClose(holder));
+        let raw = null;
+        for (let attempt = 0; ; attempt += 1) {
+          try {
+            raw = await connectRaw(DEFAULT_HOME, makeHandler(holder), makeRequest(holder), makeClose(holder));
+            break;
+          } catch (e) {
+            if (isTerminalError(e) || !attemptAllowed(attempt + 1, RECONNECT_MAX)) throw e;
+            setNotice(`gateway unavailable (attempt ${attempt + 1}); retrying…`);
+            await new Promise((resolve) => setTimeout(resolve, backoffDelay(attempt)));
+          }
+        }
         const defaultTheme = buildTheme(raw.skin);
-        const defaultBot = { ...raw, name: '', color: defaultTheme.label, borderColor: defaultTheme.bubbleBorder || defaultTheme.border, profile: '', sessionId: null, preambled: false, primary: true, seenSeq: 0, icon: skinIcon(raw.skin) };
+        const defaultBot = { ...raw, name: '', color: defaultTheme.label, borderColor: defaultTheme.bubbleBorder || defaultTheme.border, profile: '', sessionId: null, preambled: false, primary: true, seenSeq: 0, icon: skinIcon(raw.skin), home: DEFAULT_HOME, holder };
         holder.bot = defaultBot;
 
         const profs = await raw.rpc('profiles.list', { include_sessions: false });
@@ -2161,6 +2177,43 @@ function useRoom(viewRef) {
           return bot;
         };
 
+        reconnectRef.current = (bot) => {
+          if (dead || !bot || !bot.home) return;
+          if (reconnectTimersRef.current.has(bot.name)) return;
+          const attempt = reconnectAttemptsRef.current.get(bot.name) || 0;
+          if (!attemptAllowed(attempt, RECONNECT_MAX)) {
+            setStatuses((s) => ({ ...s, [bot.name]: 'offline' }));
+            setNotice(`${bot.name}: reconnect budget exhausted`);
+            return;
+          }
+          reconnectAttemptsRef.current.set(bot.name, attempt + 1);
+          setStatuses((s) => ({ ...s, [bot.name]: 'connecting…' }));
+          const delay = backoffDelay(attempt);
+          const timer = setTimeout(async () => {
+            reconnectTimersRef.current.delete(bot.name);
+            if (dead) return;
+            try {
+              const fresh = await connectRaw(bot.home, makeHandler(bot.holder), makeRequest(bot.holder), makeClose(bot.holder));
+              Object.assign(bot, fresh, { sessionId: null, offline: false, preambled: false });
+              const nextTheme = buildTheme(fresh.skin);
+              bot.color = nextTheme.label;
+              bot.borderColor = nextTheme.bubbleBorder || nextTheme.border;
+              await startSession(bot);
+              markConnected(bot);
+              reconnectAttemptsRef.current.delete(bot.name);
+              setNotice(`${bot.name}: reconnected`);
+            } catch (e) {
+              if (isTerminalError(e)) {
+                setStatuses((s) => ({ ...s, [bot.name]: 'offline' }));
+                setNotice(`${bot.name}: ${e.message}`);
+                return;
+              }
+              reconnectRef.current?.(bot);
+            }
+          }, delay);
+          reconnectTimersRef.current.set(bot.name, timer);
+        };
+
         const bots = [];
         if (selected.some((p) => p.is_default)) {
           defaultBot.name = displayName(selected.find((p) => p.is_default), raw.skin, defaultAgent);
@@ -2231,6 +2284,8 @@ function useRoom(viewRef) {
               primary: false,
               seenSeq: 0,
               icon: profileIcon(p, raw2.skin),
+              home,
+              holder: h2,
             };
             h2.bot = bot;
             await startSession(bot);
@@ -2262,6 +2317,8 @@ function useRoom(viewRef) {
 
     return () => {
       dead = true;
+      for (const t of reconnectTimersRef.current.values()) clearTimeout(t);
+      reconnectTimersRef.current.clear();
       for (const b of clientsRef.current) { try { b.ws.close(); } catch {} }
     };
   }, []);

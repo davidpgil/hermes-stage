@@ -14,6 +14,8 @@ transcript.
 - **Capacity gates** — one admission gate per model endpoint. A gate admits
   `slots - reserved` turns at once, queues the rest, and degrades a room message to a
   single responder when only one slot is available.
+- **Bounded reconnect** — a dropped socket retries with exponential backoff, creates a
+  fresh session, and rejoins the room; a terminal bootstrap failure stops immediately.
 
 ## Event flow
 

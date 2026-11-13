@@ -10,6 +10,7 @@ docs/                  Documentation
 plugin.yaml            Plugin manifest and version
 stage/entry.mjs        Stage client
 stage/capacity.mjs     Capacity probe and admission gates
+stage/reconnect.mjs    Bounded reconnect policy
 stage/package.json     JavaScript package metadata
 scripts/               Installation, reset, and hook helpers
 .githooks/pre-commit   Tracked sanitization/docs gate
@@ -31,8 +32,9 @@ git diff --check
 
 The tests cover delta assembly, tool-part updates, approval key dispatch and answer
 routing, skin-driven acknowledgements, mention tokenization, and capacity admission
-(probe parsing, gate limits, FIFO queueing, and serial/parallel degradation). The suite
-is local-only and is not part of the published repository.
+(probe parsing, gate limits, FIFO queueing, and serial/parallel degradation), plus the
+reconnect policy (backoff, attempt budget, terminal-error classification). The suite is
+local-only and is not part of the published repository.
 
 ## Versioning
 

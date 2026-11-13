@@ -61,6 +61,13 @@ shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
 
 Queued turns appear as `⏸ N queued` on the status row and are dispatched as slots free.
 
+## Reconnect
+
+A dropped gateway connection is not fatal. Stage retries with backoff, re-creates the
+profile's session, and returns the profile to the room. The status row shows
+`connecting…` during attempts and `offline` only after the retry budget is exhausted.
+`HERMES_STAGE_RECONNECT_MAX` (default 8) sets that budget.
+
 ## Tool calls and approvals
 
 Tool calls are persisted in the transcript, not only in the status bar. A tool row

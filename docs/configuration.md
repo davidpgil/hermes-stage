@@ -57,6 +57,13 @@ mode: a room message or `@everyone` gets one responder (the focused member, or t
 profile), other members observe, and automatic peer rounds stop after one round. With two
 or more admitted slots the room runs in **parallel** mode up to the gate limit.
 
+## Reconnect
+
+If the gateway restarts or a profile socket drops, Stage reconnects with exponential
+backoff (1 s, 2 s, 4 s, … capped at 30 s) for up to `HERMES_STAGE_RECONNECT_MAX` attempts
+(default 8). Terminal bootstrap failures stop immediately. Reconnect opens a fresh
+session and re-registers the profile in the room.
+
 ## Persistence
 
 The completed room transcript is stored at:
