@@ -80,6 +80,17 @@ that profile shortly before the job window. It holds the profile for 5 minutes a
 releases it if it is idle. The watcher does not run the cron job; the multiplex gateway
 does. If the profile was already awake, it does nothing.
 
+## Automation messages
+
+Automation events are shown as dim grey side notes in the room instead of being dropped.
+They are not normal bot turns: they do not trigger peer rounds and do not increment the
+profile's unread count. Hidden context-compaction rows remain skipped.
+
+This covers cron/internal notifications, background-process completions, and similar
+automation kinds. It does not by itself make a cron note arrive as a live WebSocket
+event; if the gateway only writes the note into history, Stage still needs a history
+ingestion path to show it live.
+
 ## Reconnect
 
 A dropped gateway connection is not fatal. Stage retries with backoff, re-creates the

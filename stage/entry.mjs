@@ -32,6 +32,7 @@ import { retryRpc } from './rpc-retry.mjs';
 import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
 import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.mjs';
 import { CronWatcher, DEFAULT_WATCH_HOLD_MS } from './cron-watch.mjs';
+import { automationText, isAutomationTurn, makeAutomationBubble } from './automation.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -78,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.62.0';
+const STAGE_VERSION = '0.63.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -304,26 +305,6 @@ function buildTheme(skin) {
     promptSymbol: String(b.prompt_symbol || '❯').trim() || '❯',
     toolPrefix: String(skin && skin.tool_prefix || '┊').trim() || '┊',
   };
-}
-
-const AUTOMATION_KINDS = new Set([
-  'process_complete',
-  'async_delegation_complete',
-  'internal_notification',
-  'auto_continue',
-  'diagnostic',
-  'hidden',
-  'model_switch',
-]);
-
-function isAutomationTurn(payload) {
-  if (!payload) return false;
-  const kind = String(payload.display_kind || '');
-  if (kind && AUTOMATION_KINDS.has(kind)) return true;
-  if (payload.notification_category) return true;
-  const text = String(payload.text || payload.display_text || '');
-  if (!text) return false;
-  return /^\[IMPORTANT:|Background process \S+ completed|^\[ASYNC DELEGATION|^\[System:/.test(text);
 }
 
 export function admitDelta(cursor, payload, text) {
@@ -942,6 +923,7 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
 
 function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) {
   const user = b.speaker === 'You';
+  const machine = b.machine === true;
   const parts = Array.isArray(b.parts) && b.parts.length
     ? b.parts
     : [{ kind: 'text', text: displayText == null ? b.text : displayText }];
@@ -949,10 +931,11 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
   const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
   const dots = b.done ? '' : '.'.repeat(1 + (tick % 3));
   const bubbleText = displayText == null ? (b.text || '') : displayText;
-  const asksPeer = !user && (b.asksPeer || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
+  const asksPeer = !user && !machine && (b.asksPeer || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
   const align = user || asksPeer ? 'flex-start' : 'flex-end';
 
   const borderColor = user ? t.accent : (b.borderColor || t.border);
+  const edgeColor = machine ? t.muted : borderColor;
   const topRule = `┏${'━'.repeat(Math.max(0, bubbleWidth - 2))}┓`;
   const bottomRule = `┗${'━'.repeat(Math.max(0, bubbleWidth - 2))}┛`;
 
@@ -967,9 +950,9 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
       flexShrink: 0,
       flexDirection: 'column',
     },
-      h(Text, { color: borderColor }, topRule),
+      h(Text, { color: edgeColor, dimColor: machine }, topRule),
       h(Box, { flexDirection: 'column', paddingX: 1 },
-        user ? null : h(Text, { color: t.label, bold: true, wrap: 'truncate-end' },
+        user ? null : h(Text, { color: machine ? t.muted : t.label, bold: !machine, dimColor: machine, wrap: 'truncate-end' },
           `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}${b.interrupted ? '  · interrupted' : ''}`),
         parts.map((part, i) => {
           if (part.kind === 'tool') {
@@ -982,19 +965,19 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
           if (!text) {
             return hasDiff ? null : h(Text, {
               key: `part-${i}`,
-              color: user ? t.label : t.text,
+              color: machine ? t.muted : (user ? t.label : t.text),
               wrap: 'wrap',
               dimColor: true,
             }, dots);
           }
           return h(Text, {
             key: `part-${i}`,
-            color: user ? t.label : t.text,
+            color: machine ? t.muted : (user ? t.label : t.text),
             wrap: 'wrap',
-            dimColor: !String(part.text || '').trim(),
-          }, renderMentions(text, `part-${i}`));
+            dimColor: machine || !String(part.text || '').trim(),
+          }, machine ? text : renderMentions(text, `part-${i}`));
         })),
-      h(Text, { color: borderColor }, bottomRule)));
+      h(Text, { color: edgeColor, dimColor: machine }, bottomRule)));
 }
 
 const MemoBubble = React.memo(Bubble);
@@ -1241,6 +1224,7 @@ function useRoom(viewRef) {
   const clientsRef = React.useRef([]);
   const [botList, setBotList] = React.useState([]);
   const activeRef = React.useRef(new Map());
+  const machineActiveRef = React.useRef(new Map());
   const pendingDeltaRef = React.useRef(new Map());
   const deltaTimerRef = React.useRef(null);
   const streamTurnRef = React.useRef(new Map());
@@ -1304,11 +1288,12 @@ function useRoom(viewRef) {
       const entry = pending.get(b.id);
       if (!entry) return b;
       const addition = String(entry.text);
+      const nextText = b.text + (b.text ? (b.machine ? `\n${addition}` : addition) : addition.replace(/^\s+/, ''));
       return {
         ...b,
-        text: b.text + (b.text ? addition : addition.replace(/^\s+/, '')),
-        parts: appendTextPart(b.parts, addition),
-        asksPeer: b.asksPeer || addressedPeers(addition, b.speaker).length > 0,
+        text: nextText,
+        parts: b.machine ? [{ kind: 'text', text: nextText }] : appendTextPart(b.parts, addition),
+        asksPeer: b.machine ? false : (b.asksPeer || addressedPeers(addition, b.speaker).length > 0),
       };
     }));
 
@@ -1787,10 +1772,19 @@ function useRoom(viewRef) {
       if (sid && bot.sessionId && sid !== bot.sessionId) return;
 
       if (t === 'message.start') {
+        if (String(p.payload?.display_kind || '') === 'hidden') return;
+        if (isAutomationTurn(p.payload)) {
+          // Automation is not an expected bot turn. Show it as a dim side note
+          // rather than dropping it or treating it as conversational speech.
+          if (machineActiveRef.current.has(bot.name)) return;
+          const id = newId('m');
+          machineActiveRef.current.set(bot.name, id);
+          const entry = makeAutomationBubble(bot, p.payload, id, automationText(p.payload));
+          setLog((prev) => [...prev, entry]);
+          return;
+        }
         // Only a profile with an expected turn may speak. Different profiles
-        // may stream concurrently; notifications, stale turns and replays are
-        // session machinery.
-        if (isAutomationTurn(p.payload)) return;
+        // may stream concurrently; stale turns and replays are session machinery.
         if (pendingOf(bot.name) <= 0) return;
         if (activeRef.current.has(bot.name)) return;
         const turnId = String((p.payload && p.payload.turn_id) || '');
@@ -1833,6 +1827,17 @@ function useRoom(viewRef) {
       if (t === 'message.delta') {
         const raw = p.payload?.text ?? '';
         if (!raw) return;
+        const machineId = machineActiveRef.current.get(bot.name);
+        if (machineId) {
+          const entry = pendingDeltaRef.current.get(machineId) || { name: bot.name, text: '', chars: 0 };
+          entry.text += String(raw);
+          entry.chars += String(raw).length;
+          pendingDeltaRef.current.set(machineId, entry);
+          if (!deltaTimerRef.current) {
+            deltaTimerRef.current = setTimeout(flushPendingDeltas, 80);
+          }
+          return;
+        }
         const turnId = String(p.payload?.turn_id || '');
         const expectedTurn = streamTurnRef.current.get(bot.name);
         if (turnId && expectedTurn && turnId !== expectedTurn) return;
@@ -1852,6 +1857,30 @@ function useRoom(viewRef) {
         return;
       }
       if (t === 'message.complete') {
+        if (String(p.payload?.display_kind || '') === 'hidden') return;
+        const machineId = machineActiveRef.current.get(bot.name);
+        if (machineId) {
+          flushPendingDeltas();
+          const cur = bubblesRef.current.find((b) => b.id === machineId);
+          const text = ((cur && cur.text) || automationText(p.payload) || '').trim();
+          if (!text) {
+            setLog((prev) => prev.filter((b) => b.id !== machineId));
+          } else {
+            setLog((prev) => prev.map((b) => (b.id === machineId
+              ? { ...b, text, done: true, machine: true, parts: [{ kind: 'text', text }] }
+              : b)));
+          }
+          machineActiveRef.current.delete(bot.name);
+          return;
+        }
+        if (isAutomationTurn(p.payload)) {
+          const text = automationText(p.payload).trim();
+          if (!text) return;
+          const id = newId('m');
+          const entry = makeAutomationBubble(bot, p.payload, id, text);
+          setLog((prev) => [...prev, { ...entry, done: true, parts: [{ kind: 'text', text }] }]);
+          return;
+        }
         const completeTurnId = String(p.payload?.turn_id || '');
         const expectedTurn = streamTurnRef.current.get(bot.name);
         if (completeTurnId && expectedTurn && completeTurnId !== expectedTurn) return;

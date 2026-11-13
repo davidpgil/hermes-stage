@@ -6,6 +6,28 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.63.0] - 2026-11-13
+
+### Added
+
+- Automation events are now rendered as dim grey side notes in the room instead of being
+  filtered out. This covers cron/internal notifications, process completions, and similar
+  automation kinds.
+- `stage/automation.mjs` classifies automation payloads and builds the dim-note bubble.
+
+### Changed
+
+- Automation notes are not treated as normal bot turns; they do not trigger peer rounds
+  or increment unread counts.
+- Hidden context-compaction rows remain skipped.
+
+### Verified
+
+- A mock gateway sent an `internal_notification` automation message while Stage was open:
+  the room showed `Cron report delivered` and the report text as dim grey lines with ANSI
+  dim/colour styling.
+- 65 local tests pass.
+
 ## [0.62.0] - 2026-11-13
 
 ### Added

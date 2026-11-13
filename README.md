@@ -19,6 +19,8 @@ broadcast address.
 - Failures are surfaced as notices instead of silently swallowed.
 - Profiles load lazily: only the default profile connects at startup; others wake on focus,
   mention, or a due cron job.
+- Automation events (cron/internal notifications and process completions) appear as dim grey
+  side notes instead of being dropped.
 - Interrupted turns persist with a marker instead of being lost on a crash.
 - The model/context row refreshes while idle instead of only after a turn.
 - Dialogs fit the screen: long approval text truncates with a marker, and the profile
@@ -103,7 +105,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.62.0**
+Current release: **0.63.0**
 
 ## License
 
