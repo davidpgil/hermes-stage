@@ -6,6 +6,22 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-11-13
+
+### Changed
+
+- Approval dialog command text is capped to the rows available on screen; overflow is
+  marked with `… N more lines` instead of silently disappearing. Its choices remain
+  visible.
+- The profile picker is height-budgeted (up to 12 rows) with a scrollbar, so it stays
+  on screen and its options remain reachable. The picker and command menu close when
+  an approval arrives, prioritizing the approval dialog.
+
+### Verified
+
+- 80×24 mock UI run: picker showed 12 rows with composer and tabs still visible; a
+  long approval showed a truncation marker, all four choices, and the bottom chrome.
+
 ## [0.59.0] - 2026-11-13
 
 ### Added

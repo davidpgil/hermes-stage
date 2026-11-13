@@ -42,8 +42,9 @@ reconnect policy (backoff, attempt budget, terminal-error classification), the s
 resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
 policy (retryable vs semantic errors, attempt budget), occupancy admission (live
 `/slots` probe plus foreign-occupancy accounting), connection-pool bounds, persistence
-(interrupted-turn marking), and the idle status-refresh policy. The suite is local-only
-and is not part of the published repository.
+(interrupted-turn marking), the idle status-refresh policy, and dialog sizing
+(approval truncation and picker height budgets). The suite is local-only and is not part
+of the published repository.
 
 ## Versioning
 

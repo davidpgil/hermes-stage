@@ -79,7 +79,7 @@ const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.59.0';
+const STAGE_VERSION = '0.60.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1068,21 +1068,29 @@ const APPROVAL_LABELS = {
   deny: 'Deny',
 };
 
-function approvalCommandLines(approval, columns) {
+const APPROVAL_CARD_CHROME_ROWS = 4;
+
+export function approvalCommandLines(approval, columns, maxLines = 6) {
   const innerWidth = Math.max(20, Math.min(columns - 8, 100));
   const command = String(approval.command || approval.description || '');
-  return wrapDisplayLine(command, innerWidth).slice(0, 6);
+  const wrapped = wrapDisplayLine(command, innerWidth);
+  const limit = Math.max(0, Math.floor(maxLines));
+  if (!limit) return [];
+  if (wrapped.length <= limit) return wrapped.slice(0, limit);
+  const shown = wrapped.slice(0, Math.max(0, limit - 1));
+  const omitted = wrapped.length - shown.length;
+  return [...shown, `… ${omitted} more line${omitted === 1 ? '' : 's'}`];
 }
 
-function approvalCardRows(approval, columns) {
+export function approvalCardRows(approval, columns, maxLines = 6) {
   const choices = approval.choices && approval.choices.length ? approval.choices : ['once', 'deny'];
-  return 4 + approvalCommandLines(approval, columns).length + choices.length;
+  return APPROVAL_CARD_CHROME_ROWS + approvalCommandLines(approval, columns, maxLines).length + choices.length;
 }
 
-function renderApprovalCard({ approval, selected, t, columns }) {
+function renderApprovalCard({ approval, selected, t, columns, maxCommandRows = 6 }) {
   const width = Math.max(20, Math.min(columns - 2, 120));
   const choices = approval.choices && approval.choices.length ? approval.choices : ['once', 'deny'];
-  const lines = approvalCommandLines(approval, columns);
+  const lines = approvalCommandLines(approval, columns, maxCommandRows);
   const sel = Math.max(0, Math.min(selected, choices.length - 1));
   return h(Box, {
     width,
@@ -2662,7 +2670,23 @@ function Stage() {
 
   const pickerOptions = room.roster;
   const pickerRows = [...pickerOptions, { name: 'Back', profile: '__back__', isBack: true }];
-  const pickerVisible = 12;
+
+  // Menus must leave at least three transcript rows and the fixed chrome on screen.
+  const fixedChromeRows = 1 + 1 + 1 + 3 + 3 + (room.notice ? 1 : 0);
+  const menuBudget = Math.max(8, rows - fixedChromeRows - 3);
+  const approval = room.approvals[0] || null;
+  const approvalChoices = approval && approval.choices && approval.choices.length
+    ? approval.choices
+    : ['once', 'deny'];
+  const maxApprovalRows = approval ? Math.min(14, menuBudget) : 0;
+  const maxApprovalCommandRows = approval
+    ? Math.max(0, maxApprovalRows - APPROVAL_CARD_CHROME_ROWS - approvalChoices.length)
+    : 0;
+  const approvalRows = approval
+    ? approvalCardRows(approval, columns, maxApprovalCommandRows)
+    : 0;
+
+  const pickerVisible = Math.max(4, Math.min(12, menuBudget - approvalRows));
   const pickerNameMax = Math.max(4, ...pickerRows.map((option) => option.name.length));
   const pickerHasScrollbar = true;
   const pickerMenuWidth = Math.min(columns - 2, Math.max(24, pickerNameMax + 6 + 1));
@@ -2706,6 +2730,13 @@ function Stage() {
     setComposerText('', 0);
     return true;
   }, [pickerOptions.length, defaultPickerIndex]);
+
+  React.useEffect(() => {
+    if (room.approvals.length) {
+      setPickerOpen(false);
+      setSlashOpen(false);
+    }
+  }, [room.approvals.length]);
 
   const submit = React.useCallback(async () => {
     const text = composer;
@@ -3109,18 +3140,12 @@ function Stage() {
   const completed = lens.filter((b) => b.done && (b.text || hasDiffPart(b)));
   const active = lens.filter((b) => !b.done);
 
-  // Fixed chrome: one version row, one scroll-hint row, the maximum status-board
-  // rows, three composer rows (rule/text/rule), and three bottom rows (STAGE,
-  // double separator, profile tabs).
-  // Keeping the status reserve fixed prevents the transcript viewport from
-  // resizing when a lens shows fewer or more status rows.
-  const panelRows = 1;
-  const scrollHintRows = 1;
-  const composerRows = 3;
+  // Fixed chrome: one version row, one scroll-hint row, the status board,
+  // three composer rows, and three bottom rows. Menu rows are budgeted separately.
   const maxStatusRows = 1;
-  const tabRows = 3;
-  const approvalRows = room.approvals.length ? Math.min(14, approvalCardRows(room.approvals[0], columns)) : 0;
-  const viewportHeight = Math.max(4, rows - (panelRows + scrollHintRows + maxStatusRows + composerRows + tabRows + approvalRows));
+  const pickerRowsVisible = pickerOpen ? pickerItems.length : 0;
+  const slashRowsVisible = slashOpen && slashItems.length ? slashWindow.length : 0;
+  const viewportHeight = Math.max(3, rows - (fixedChromeRows + approvalRows + pickerRowsVisible + slashRowsVisible));
 
   const activePerBubble = active.length
     ? Math.max(1, Math.min(8, Math.floor(viewportHeight / active.length) - 4))
@@ -3196,6 +3221,7 @@ function Stage() {
       selected: approvalSel,
       t,
       columns,
+      maxCommandRows: maxApprovalCommandRows,
     }) : null,
     slashOpen && slashItems.length ? h(Box, {
       alignSelf: 'flex-start',

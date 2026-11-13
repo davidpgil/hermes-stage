@@ -19,6 +19,9 @@ transcript.
   once (default 4), so a large roster starts faster without stampeding the gateway.
 - **Idle status refresh** — the focused bot's `session.info` is polled every 15 s while
   the room is idle, so the model/context row stays current without waiting for a turn.
+- **Screen-budgeted dialogs** — approval and profile-picker rows are deducted from the
+  transcript viewport. Approval text truncates with a marker; the picker scrolls.
+  An approval closes the picker so its choices stay visible.
 - **Bounded reconnect** — a dropped socket retries with exponential backoff, creates a
   fresh session, and rejoins the room; a terminal bootstrap failure stops immediately.
 

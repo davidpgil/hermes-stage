@@ -60,6 +60,9 @@ shows `cap <admitted>/<slots>` plus `serial` when only one turn is admitted.
 - **Busy brain:** if another client occupies every slot, Stage defers (2 s retry, 60 s cap)
   instead of piling onto the queue.
 - **Status row:** the focused model/context row refreshes every 15 s while idle.
+- **Dialogs:** approval and profile-picker menus fit the available screen rows.
+  Approval command text truncates with a `… N more lines` marker; the profile picker
+  scrolls. Opening an approval closes the picker so its choices stay on screen.
 - **Probe failure:** Stage assumes one slot and stays serial rather than flooding the brain.
 
 Queued turns appear as `⏸ N queued` on the status row and are dispatched as slots free.

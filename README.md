@@ -20,6 +20,8 @@ room with `@everyone`.
 - Parallel profile connections so a large roster starts faster.
 - Interrupted turns persist with a marker instead of being lost on a crash.
 - The model/context row refreshes while idle instead of only after a turn.
+- Dialogs fit the screen: long approval text truncates with a marker, and the profile
+  picker scrolls while keeping its options reachable.
 - A configurable roster of Hermes profiles.
 
 ## Requirements
@@ -100,7 +102,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.59.0**
+Current release: **0.60.0**
 
 ## License
 
