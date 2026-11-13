@@ -81,6 +81,16 @@ backoff (1 s, 2 s, 4 s, … capped at 30 s) for up to `HERMES_STAGE_RECONNECT_MA
 session and re-registers the profile in the room. A connection attempt that fails before
 the socket opens is handled and retried; it does not crash the room.
 
+## Status refresh
+
+```sh
+HERMES_STAGE_STATUS_REFRESH_MS=15000 hermes stage
+```
+
+While the room is idle, Stage refreshes the focused bot's `session.info` every 15 s
+(5–60 s) so the model and context row stays current without waiting for a turn. Bots that
+are streaming, queued, offline, or placeholder are skipped.
+
 ## RPC retries
 
 Idempotent reads (`session.info`, `client.capabilities`, `approval.pending`) retry once

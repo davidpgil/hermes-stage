@@ -31,6 +31,7 @@ import { resolveStatusSource, modelForDisplay } from './status.mjs';
 import { retryRpc } from './rpc-retry.mjs';
 import { resolveConnectParallelism } from './pool.mjs';
 import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
+import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -71,13 +72,14 @@ const CAPACITY_TTL_MS = 30000;
 const BUSY_TTL_MS = 3000;
 const BUSY_RETRY_MS = 2000;
 const BUSY_MAX_WAIT_MS = 60000;
+const STATUS_REFRESH_MS = resolveStatusRefreshMs(process.env.HERMES_STAGE_STATUS_REFRESH_MS);
 const ROOM_STATE_PATH = process.env.HERMES_STAGE_ROOM_STATE
   || (DEFAULT_HOME
     ? `${DEFAULT_HOME}/state/hermes-stage-room.json`
     : `${process.env.HOME || '.'}/.hermes/hermes-stage-room.json`);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.58.0';
+const STAGE_VERSION = '0.59.0';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1272,6 +1274,8 @@ function useRoom(viewRef) {
   const busyTimersRef = React.useRef(new Map());
   const busySinceRef = React.useRef(new Map());
   const [capacity, setCapacity] = React.useState({ mode: 'serial', slots: 1, ctx: 0 });
+  const statusesRef = React.useRef({});
+  statusesRef.current = statuses;
 
   const flushPendingDeltas = React.useCallback(() => {
     if (deltaTimerRef.current) {
@@ -2569,6 +2573,21 @@ function useRoom(viewRef) {
     syncPending();
     return true;
   }, [focusName, cycleFocus, resolveMember]);
+
+  React.useEffect(() => {
+    if (!botList.length) return;
+    let cancelled = false;
+    const refresh = () => {
+      if (cancelled) return;
+      const target = botList.find((b) => b.name === focusName) || botList.find((b) => !b.placeholder);
+      if (!shouldRefreshRuntime(target, statusesRef.current[target?.name])) return;
+      retryRpc(() => target.rpc('session.info', { session_id: target.sessionId }))
+        .then((info) => { if (!cancelled) setRuntimeFor(target, info); })
+        .catch(() => {});
+    };
+    const timer = setInterval(refresh, STATUS_REFRESH_MS);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [botList, focusName]);
 
   return { bubbles, statuses, notice, setNotice, tick, online, submit, approvals, respond, runtimes, liveMetrics, focusName, cycleFocus, setFocus, roster, theme, bots: botList, tools, thinking, unread, clearUnread, queues, pending, gates: gatesRef.current, capacity };
 }

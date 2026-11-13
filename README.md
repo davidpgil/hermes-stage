@@ -19,6 +19,7 @@ room with `@everyone`.
 - Failures are surfaced as notices instead of silently swallowed.
 - Parallel profile connections so a large roster starts faster.
 - Interrupted turns persist with a marker instead of being lost on a crash.
+- The model/context row refreshes while idle instead of only after a turn.
 - A configurable roster of Hermes profiles.
 
 ## Requirements
@@ -98,7 +99,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.58.0**
+Current release: **0.59.0**
 
 ## License
 

@@ -15,6 +15,7 @@ stage/status.mjs       Status-board source resolution
 stage/rpc-retry.mjs    Retry policy for idempotent RPC reads
 stage/pool.mjs         Bounded connection parallelism
 stage/persistence.mjs  Transcript persistence and interrupted-turn marking
+stage/status-refresh.mjs  Idle status-refresh policy
 stage/package.json     JavaScript package metadata
 scripts/               Installation, reset, and hook helpers
 .githooks/pre-commit   Tracked sanitization/docs gate
@@ -40,9 +41,9 @@ routing, skin-driven acknowledgements, mention tokenization, and capacity admiss
 reconnect policy (backoff, attempt budget, terminal-error classification), the status
 resolver (focused/primary/placeholder and configured-model fallback), and the RPC retry
 policy (retryable vs semantic errors, attempt budget), occupancy admission (live
-`/slots` probe plus foreign-occupancy accounting), connection-pool bounds, and persistence
-(interrupted-turn marking). The suite is local-only and is not part of the published
-repository.
+`/slots` probe plus foreign-occupancy accounting), connection-pool bounds, persistence
+(interrupted-turn marking), and the idle status-refresh policy. The suite is local-only
+and is not part of the published repository.
 
 ## Versioning
 
