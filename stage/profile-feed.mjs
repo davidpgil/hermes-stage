@@ -10,12 +10,12 @@
  */
 
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 export const DEFAULT_FEED_MS = 15000;
 
-const CRON_PREFIX = /^\[Cronjob\s+"[^"]+"\s+output\s+—\s+scheduled job, not the user\. Review it, act on anything that needs action, and summarize for the chat\.\]\s*/;
+const CRON_PREFIX = /^\[Cronjob\s+[\s\S]*?\s+output\s+—\s+scheduled job, not the user\. Review it, act on anything that needs action, and summarize for the chat\.\]\s*/;
 
 export function cleanCronNotification(text) {
   return String(text || '').replace(CRON_PREFIX, '').trim();
@@ -33,25 +33,44 @@ export function loadFeedState(path) {
 export function saveFeedState(path, state) {
   try {
     mkdirSync(dirname(path), { recursive: true });
-    writeFileSync(path, JSON.stringify(state, null, 2));
+    const tmp = `${path}.tmp-${process.pid}`;
+    writeFileSync(tmp, JSON.stringify(state, null, 2));
+    renameSync(tmp, path);
   } catch {
     // Feed state is an optimization, not a correctness requirement.
   }
 }
 
-function maxCursor(dbPath) {
+/**
+ * Seed a profile from its most recent feed-eligible public row, not from the
+ * newest row of any kind. A newer tool row or Stage Room row must not push the
+ * cursor past an unseen notification or speech item.
+ */
+function latestPublicCursor(dbPath) {
+  const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
-    const db = new DatabaseSync(dbPath, { readOnly: true });
-    try {
-      const row = db.prepare(
-        'SELECT id, timestamp FROM messages ORDER BY timestamp DESC, id DESC LIMIT 1'
-      ).get();
-      return { ts: Number(row?.timestamp || 0), id: Number(row?.id || 0) };
-    } finally {
-      db.close();
-    }
-  } catch {
-    return { ts: Date.now() / 1000, id: 0 };
+    db.exec('PRAGMA busy_timeout = 5000');
+    const row = db.prepare(`
+      SELECT m.id, m.timestamp
+      FROM messages AS m
+      JOIN sessions AS s ON s.id = m.session_id
+      WHERE s.title NOT LIKE 'Hermes Stage Room%'
+        AND (s.title = 'Bot Chat' OR s.source = 'cron')
+        AND m.role IN ('assistant', 'user')
+        AND (m.display_kind IS NULL OR m.display_kind NOT IN ('hidden', 'failed_turn'))
+        AND m.content IS NOT NULL AND TRIM(m.content) <> ''
+        AND (
+          (m.role = 'assistant' AND (m.display_kind IS NULL OR m.display_kind <> 'internal_notification'))
+          OR (m.role = 'user' AND m.display_kind = 'internal_notification'
+              AND SUBSTR(m.content, 1, 8) = '[Cronjob')
+        )
+      ORDER BY m.timestamp DESC, m.id DESC
+      LIMIT 1
+    `).get();
+    if (!row) return { ts: Date.now() / 1000, id: 0 };
+    return { ts: Number(row.timestamp || 0), id: Number(row.id || 0) - 1 };
+  } finally {
+    db.close();
   }
 }
 
@@ -63,6 +82,7 @@ function maxCursor(dbPath) {
 export function speechRows(dbPath, cursor = { ts: 0, id: 0 }) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   try {
+    db.exec('PRAGMA busy_timeout = 5000');
     return db.prepare(`
       SELECT m.id, m.session_id, m.role, m.display_kind, m.content, m.timestamp,
              s.title, s.source
@@ -87,7 +107,7 @@ export function speechRows(dbPath, cursor = { ts: 0, id: 0 }) {
   }
 }
 
-export function makeFeedBubble({ profile, speaker, icon, text, machine, at, id }) {
+export function makeFeedBubble({ speaker, icon, text, machine, at, id }) {
   return {
     id,
     speaker,
@@ -114,26 +134,43 @@ export function startProfileFeed({
   roster,
   addBubble,
   markUnread,
+  onError,
   statePath,
   intervalMs = DEFAULT_FEED_MS,
-  now = () => Date.now(),
 }) {
   const state = loadFeedState(statePath);
   const cursors = state.cursors && typeof state.cursors === 'object' ? state.cursors : {};
   const profiles = roster.filter((r) => r && r.profile && r.home && !r.isDefault);
   let stopped = false;
   let timer = null;
+  const reported = new Set();
+
+  const report = (profile, err) => {
+    if (reported.has(profile)) return;
+    reported.add(profile);
+    onError?.(profile, err);
+  };
 
   const poll = () => {
     if (stopped) return;
     for (const row of profiles) {
       const profile = row.profile;
       const dbPath = `${row.home}/state.db`;
-      if (!cursors[profile]) cursors[profile] = maxCursor(dbPath);
+      if (!existsSync(dbPath)) continue;
+      if (!cursors[profile]) {
+        try {
+          cursors[profile] = latestPublicCursor(dbPath);
+        } catch (err) {
+          report(profile, err);
+          continue;
+        }
+      }
       let rows;
       try {
         rows = speechRows(dbPath, cursors[profile]);
-      } catch {
+        reported.delete(profile);
+      } catch (err) {
+        report(profile, err);
         continue;
       }
       for (const message of rows) {
@@ -144,7 +181,6 @@ export function startProfileFeed({
         const id = `feed:${profile}:${message.id}`;
         const at = Number(message.timestamp || 0) * 1000;
         addBubble(makeFeedBubble({
-          profile,
           speaker: row.name,
           icon: row.icon,
           text,

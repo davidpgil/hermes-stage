@@ -5,7 +5,7 @@ This page covers the shortest path from a clean checkout to a running room.
 ## Requirements
 
 - Hermes Agent **v0.23.1+** with a local gateway runtime exposing the `tui` session source.
-- **Node 22+** on `PATH`.
+- **Node 22.5+** on `PATH` (Node 26 tested).
 - The Stage dependencies installed once with npm.
 
 ## Install from a local checkout

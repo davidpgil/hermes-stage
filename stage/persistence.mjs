@@ -19,7 +19,7 @@ function validBubble(b) {
 export function serializeRoomBubbles(bubbles, limit = MAX_STATE_MESSAGES) {
   return (Array.isArray(bubbles) ? bubbles : [])
     .filter(validBubble)
-    .map((b) => ({ ...b, done: true, interrupted: b.done === false }))
+    .map((b) => ({ ...b, done: true, interrupted: Boolean(b.interrupted || b.done === false) }))
     .slice(-limit);
 }
 

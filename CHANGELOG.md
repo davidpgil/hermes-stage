@@ -6,6 +6,36 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.1] - 2026-11-13
+
+### Fixed
+
+- Pinned the runtime requirement to Node 22.5+ for `node:sqlite`; README and
+  getting-started docs now match the engine declaration.
+- Profile feed seeds from the latest feed-eligible public row instead of the newest
+  row of any kind, so a newer tool or Stage Room row no longer skips a recent
+  notification or speech item.
+- Profile feed surfaces database errors once per profile instead of silently
+  disabling the feed; it also uses a SQLite busy timeout and atomic state writes.
+- Cron notification prefix stripping handles job names containing quotes.
+- Sleeping profiles are not disconnected while an approval or queued prompt is
+  pending.
+- Machine notes now render neutral gray (`gray`/ANSI 90), matching the documented
+  dim-grey behavior, instead of the theme’s orange `t.muted`.
+- The interrupted-turn marker survives repeated serialization after restore.
+- `@focus next`/`@focus prev` now wakes the selected profile; tab/shift-arrow focus
+  still only changes focus.
+- Feed polling starts from a stable profile key rather than restarting on every
+  roster status update.
+
+### Verified
+
+- Local suite: 71/71 tests pass, including new feed tests and the interrupted-marker
+  regression test.
+- Live mock: first-run feed showed the latest eligible speech despite a newer tool
+  row; `@focus next` opened a second connection; machine notes captured as
+  `\x1b[2m\x1b[90m` neutral gray.
+
 ## [0.66.0] - 2026-11-13
 
 ### Added

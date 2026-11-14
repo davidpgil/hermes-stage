@@ -34,7 +34,7 @@ broadcast address.
 ## Requirements
 
 - Hermes Agent **v0.23.1+** with a local gateway runtime exposing the `tui` session source.
-- **Node 22+** on `PATH`.
+- **Node 22.5+** on `PATH` (Node 26 tested).
 - The Stage dependencies `ink`, `react`, and `string-width` installed once with npm.
 
 ## Install
@@ -109,7 +109,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.66.0**
+Current release: **0.66.1**
 
 ## License
 

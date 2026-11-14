@@ -83,7 +83,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.0';
+const STAGE_VERSION = '0.66.1';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -943,7 +943,7 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
   const align = user || asksPeer ? 'flex-start' : 'flex-end';
 
   const borderColor = user ? t.accent : (b.borderColor || t.border);
-  const edgeColor = machine ? t.muted : borderColor;
+  const edgeColor = machine ? 'gray' : borderColor;
   const topRule = `┏${'━'.repeat(Math.max(0, bubbleWidth - 2))}┓`;
   const bottomRule = `┗${'━'.repeat(Math.max(0, bubbleWidth - 2))}┛`;
 
@@ -960,7 +960,7 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
     },
       h(Text, { color: edgeColor, dimColor: machine }, topRule),
       h(Box, { flexDirection: 'column', paddingX: 1 },
-        user ? null : h(Text, { color: machine ? t.muted : t.label, bold: !machine, dimColor: machine, wrap: 'truncate-end' },
+        user ? null : h(Text, { color: machine ? 'gray' : t.label, bold: !machine, dimColor: machine, wrap: 'truncate-end' },
           `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}${b.interrupted ? '  · interrupted' : ''}`),
         parts.map((part, i) => {
           if (part.kind === 'tool') {
@@ -973,14 +973,14 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
           if (!text) {
             return hasDiff ? null : h(Text, {
               key: `part-${i}`,
-              color: machine ? t.muted : (user ? t.label : t.text),
+              color: machine ? 'gray' : (user ? t.label : t.text),
               wrap: 'wrap',
               dimColor: true,
             }, dots);
           }
           return h(Text, {
             key: `part-${i}`,
-            color: machine ? t.muted : (user ? t.label : t.text),
+            color: machine ? 'gray' : (user ? t.label : t.text),
             wrap: 'wrap',
             dimColor: machine || !String(part.text || '').trim(),
           }, machine ? text : renderMentions(text, `part-${i}`));
@@ -1262,6 +1262,8 @@ function useRoom(viewRef) {
   const [thinking, setThinking] = React.useState({});
   const [focusName, setFocusName] = React.useState('');
   const [theme, setTheme] = React.useState(null);
+  const approvalsRef = React.useRef([]);
+  approvalsRef.current = approvals;
   const gatesRef = React.useRef(new Map());
   const capacityCacheRef = React.useRef(new Map());
   const capacityModeRef = React.useRef('serial');
@@ -1293,16 +1295,18 @@ function useRoom(viewRef) {
   }, [viewRef, setUnread]);
 
   React.useEffect(() => {
-    if (!roster.length) return;
+    const profileKey = roster.map((r) => r.profile).join('|');
+    if (!profileKey) return;
     const feed = startProfileFeed({
       roster,
       addBubble: addProfileFeedBubble,
       markUnread: markProfileFeedUnread,
+      onError: (profile, err) => setNotice(`${profile}: profile feed — ${err.message}`),
       statePath: PROFILE_FEED_STATE_PATH,
       intervalMs: PROFILE_FEED_MS,
     });
     return () => feed.stop();
-  }, [roster, addProfileFeedBubble, markProfileFeedUnread]);
+  }, [roster.map((r) => r.profile).join('|'), addProfileFeedBubble, markProfileFeedUnread, setNotice]);
 
   const flushPendingDeltas = React.useCallback(() => {
     if (deltaTimerRef.current) {
@@ -2451,6 +2455,15 @@ function useRoom(viewRef) {
           const bot = clientsRef.current.find((b) => b.profile === profileName || b.name === profileName);
           if (!bot || bot.primary || bot.sleeping) return;
           if (bot.name === focusNameRef.current) return;
+          if (approvalsRef.current.some((a) => a.bot === bot)) {
+            setNotice(`${bot.name}: approval pending — staying awake`);
+            return;
+          }
+          const queued = queueRef.current.get(bot.name);
+          if (queued && queued.length) {
+            setNotice(`${bot.name}: queued prompt — staying awake`);
+            return;
+          }
           if (pendingOf(bot.name) > 0 || activeRef.current.has(bot.name)) return;
           bot.sleeping = true;
           bot.offline = true;
@@ -2544,12 +2557,13 @@ function useRoom(viewRef) {
 
   const cycleFocus = React.useCallback((dir = 1) => {
     const list = rosterRef.current;
-    if (!list.length) return;
+    if (!list.length) return null;
     let idx = list.findIndex((r) => r.name === focusName || r.profile === focusName);
     if (idx < 0) idx = list.findIndex((r) => r.isDefault);
     if (idx < 0) idx = 0;
     const next = list[(idx + dir + list.length) % list.length];
     setFocusName(next.name);
+    return next;
   }, [focusName]);
 
   const setFocus = React.useCallback((name, wake = false) => {
@@ -2566,7 +2580,8 @@ function useRoom(viewRef) {
     if (focusCmd) {
       const arg = (focusCmd[1] || '').trim().toLowerCase();
       if (!arg || arg === 'next' || arg === 'prev') {
-        cycleFocus(arg === 'prev' ? -1 : 1);
+        const next = cycleFocus(arg === 'prev' ? -1 : 1);
+        if (next) await ensureProfileRef.current?.(next.profile);
         return false;
       }
       const hit = resolveMember(arg);
@@ -2869,7 +2884,11 @@ function Stage() {
         return;
       }
       if (arg === 'next' || arg === 'prev') {
-        room.cycleFocus(arg === 'prev' ? -1 : 1);
+        const next = room.cycleFocus(arg === 'prev' ? -1 : 1);
+        if (next) {
+          setLastProfile(next.profile);
+          room.setFocus(next.name, true);
+        }
         setComposerText('', 0);
         return;
       }
