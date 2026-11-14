@@ -6,6 +6,12 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- `scripts/hermes-catalog-pr.sh` now builds the catalog PR body from the
+  release's `CHANGELOG.md` section instead of a hardcoded note, so the PR
+  always describes the version it pins.
+
 ## [0.66.8] - 2026-11-14
 
 ### Changed

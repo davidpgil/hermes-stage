@@ -103,7 +103,23 @@ gh api -X PUT "repos/$FORK/contents/plugin-catalog/hermes-stage.yaml" \
   -f sha="$FILE_SHA" \
   -f branch="$BRANCH" >/dev/null
 
-BODY="Bump Hermes Stage from the previous catalog pin to $VERSION at $SHA. The plugin release includes the approval-settlement fix, skin-driven pass acknowledgements, blue mention styling, gray tool-call styling, new-user docs, and the sanitization/docs pre-commit hook."
+BODY="$(
+  python3 - "$VERSION" "$SHA" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+version, sha = sys.argv[1], sys.argv[2]
+text = Path("CHANGELOG.md").read_text()
+match = re.search(rf"^## \[{re.escape(version)}\][^\n]*\n(.*?)(?=^## \[)", text, re.M | re.S)
+notes = match.group(1).strip() if match else ""
+
+print(f"Bump the Hermes Stage catalog pin to {version} at {sha[:8]}.\n")
+if notes:
+    print("Release notes:\n")
+    print(notes)
+PY
+)"
 
 if [ -n "$EXISTING_URL" ]; then
   gh pr edit "$EXISTING_URL" --body "$BODY" >/dev/null
