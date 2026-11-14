@@ -14,8 +14,23 @@ import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from '
 import { dirname } from 'node:path';
 
 export const DEFAULT_FEED_MS = 15000;
+export const FEED_STATE_VERSION = 2;
 
 const CRON_PREFIX = /^\[Cronjob\s+[\s\S]*?\s+output\s+—\s+scheduled job, not the user\. Review it, act on anything that needs action, and summarize for the chat\.\]\s*/;
+
+const PUBLIC_FEED_FILTER = `
+  s.title NOT LIKE 'Hermes Stage Room%'
+  AND (s.title = 'Bot Chat' OR s.source = 'cron')
+  AND m.role IN ('assistant', 'user')
+  AND (m.display_kind IS NULL OR m.display_kind NOT IN ('hidden', 'failed_turn'))
+  AND m.content IS NOT NULL AND TRIM(m.content) <> ''
+  AND NOT (m.role = 'assistant' AND TRIM(m.content) = '(pass)')
+  AND (
+    (m.role = 'assistant' AND (m.display_kind IS NULL OR m.display_kind <> 'internal_notification'))
+    OR (m.role = 'user' AND m.display_kind = 'internal_notification'
+        AND SUBSTR(m.content, 1, 8) = '[Cronjob')
+  )
+`;
 
 export function cleanCronNotification(text) {
   return String(text || '').replace(CRON_PREFIX, '').trim();
@@ -24,9 +39,15 @@ export function cleanCronNotification(text) {
 export function loadFeedState(path) {
   try {
     const value = JSON.parse(readFileSync(path, 'utf8'));
-    return value && typeof value === 'object' ? value : {};
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return { version: FEED_STATE_VERSION, cursors: {} };
+    }
+    if (value.version !== FEED_STATE_VERSION) {
+      return { version: FEED_STATE_VERSION, cursors: {} };
+    }
+    return value;
   } catch {
-    return {};
+    return { version: FEED_STATE_VERSION, cursors: {} };
   }
 }
 
@@ -34,6 +55,7 @@ export function saveFeedState(path, state) {
   try {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp-${process.pid}`;
+    state.version = FEED_STATE_VERSION;
     writeFileSync(tmp, JSON.stringify(state, null, 2));
     renameSync(tmp, path);
   } catch {
@@ -54,16 +76,7 @@ function latestPublicCursor(dbPath) {
       SELECT m.id, m.timestamp
       FROM messages AS m
       JOIN sessions AS s ON s.id = m.session_id
-      WHERE s.title NOT LIKE 'Hermes Stage Room%'
-        AND (s.title = 'Bot Chat' OR s.source = 'cron')
-        AND m.role IN ('assistant', 'user')
-        AND (m.display_kind IS NULL OR m.display_kind NOT IN ('hidden', 'failed_turn'))
-        AND m.content IS NOT NULL AND TRIM(m.content) <> ''
-        AND (
-          (m.role = 'assistant' AND (m.display_kind IS NULL OR m.display_kind <> 'internal_notification'))
-          OR (m.role = 'user' AND m.display_kind = 'internal_notification'
-              AND SUBSTR(m.content, 1, 8) = '[Cronjob')
-        )
+      WHERE ${PUBLIC_FEED_FILTER}
       ORDER BY m.timestamp DESC, m.id DESC
       LIMIT 1
     `).get();
@@ -89,16 +102,7 @@ export function speechRows(dbPath, cursor = { ts: 0, id: 0 }) {
       FROM messages AS m
       JOIN sessions AS s ON s.id = m.session_id
       WHERE (m.timestamp > ? OR (m.timestamp = ? AND m.id > ?))
-        AND s.title NOT LIKE 'Hermes Stage Room%'
-        AND (s.title = 'Bot Chat' OR s.source = 'cron')
-        AND m.role IN ('assistant', 'user')
-        AND (m.display_kind IS NULL OR m.display_kind NOT IN ('hidden', 'failed_turn'))
-        AND m.content IS NOT NULL AND TRIM(m.content) <> ''
-        AND (
-          (m.role = 'assistant' AND (m.display_kind IS NULL OR m.display_kind <> 'internal_notification'))
-          OR (m.role = 'user' AND m.display_kind = 'internal_notification'
-              AND SUBSTR(m.content, 1, 8) = '[Cronjob')
-        )
+        AND ${PUBLIC_FEED_FILTER}
       ORDER BY m.timestamp ASC, m.id ASC
       LIMIT 50
     `).all(cursor.ts, cursor.ts, cursor.id);
@@ -111,8 +115,8 @@ export function makeFeedBubble({ speaker, icon, text, machine, at, id }) {
   return {
     id,
     speaker,
-    color: machine ? 'gray' : '#cbd5e1',
-    borderColor: 'gray',
+    color: machine ? 'gray' : undefined,
+    borderColor: machine ? 'gray' : undefined,
     text,
     done: true,
     at,
@@ -160,6 +164,7 @@ export function startProfileFeed({
       if (!cursors[profile]) {
         try {
           cursors[profile] = latestPublicCursor(dbPath);
+          reported.delete(profile);
         } catch (err) {
           report(profile, err);
           continue;
@@ -176,6 +181,7 @@ export function startProfileFeed({
       for (const message of rows) {
         const machine = message.role === 'user';
         const rawText = String(message.content || '').trim();
+        if (message.role === 'assistant' && rawText === '(pass)') continue;
         const text = machine ? cleanCronNotification(rawText) : rawText;
         if (!text) continue;
         const id = `feed:${profile}:${message.id}`;
@@ -193,6 +199,7 @@ export function startProfileFeed({
       }
     }
     state.cursors = cursors;
+    state.version = FEED_STATE_VERSION;
     saveFeedState(statePath, state);
   };
 

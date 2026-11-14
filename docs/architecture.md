@@ -27,8 +27,9 @@ transcript.
   unread so its tab shows the blue indicator. Hidden context rows remain skipped.
 - **Public profile speech feed** — reads each non-default profile’s `state.db` for final
   assistant speech and cron notifications. Tool calls, failed turns, private user prompts,
-  and Stage Room session duplicates are excluded. The feed is plugin-local and does not
-  alter gateway routing.
+  assistant `(pass)` rows, and Stage Room session duplicates are excluded. Feed cursors are
+  versioned; legacy unversioned cursors are reset and re-seeded instead of trusted. The feed
+  is plugin-local and does not alter gateway routing.
 - **Explicit mentions wake a cold profile** — a bot reply containing `@Name` wakes
   that cold profile so it can take the next turn. Tab, picker, and shift-arrow focus
   still only change focus.

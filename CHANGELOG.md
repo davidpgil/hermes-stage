@@ -6,6 +6,28 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.5] - 2026-11-14
+
+### Fixed
+
+- Cold-mention wake failure no longer references the connection-effect-scoped `dead`
+  variable; the live/dead guard now uses a hook-level ref.
+- Profile feed excludes assistant `(pass)` rows from speech and cursor seeding.
+- Profile feed resets legacy unversioned cursor state so stale cursors cannot skip the
+  latest eligible event.
+- Profile feed no longer hard-codes a gray border for normal speech; machine notes
+  remain gray.
+- Profile feed clears error dedupe after a successful cursor seed so a later distinct
+  error is reported.
+- Duplicated profile-feed eligibility SQL is centralized in one filter.
+- Plugin manifest now verifies that `node:sqlite` actually imports, not only the Node
+  version.
+
+### Tests
+
+- Added regression coverage for `(pass)` exclusion, pass-row cursor seeding, state
+  migration, feed speech/machine border behavior, and cold-wake success/failure paths.
+
 ## [0.66.4] - 2026-11-13
 
 ### Changed

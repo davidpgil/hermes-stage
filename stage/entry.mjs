@@ -34,6 +34,7 @@ import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.m
 import { CronWatcher, DEFAULT_WATCH_HOLD_MS } from './cron-watch.mjs';
 import { automationText, isAutomationTurn, makeAutomationBubble } from './automation.mjs';
 import { startProfileFeed } from './profile-feed.mjs';
+import { wakeColdMentions } from './cold-wake.mjs';
 
 const h = React.createElement;
 const ROOT = process.env.HERMES_STAGE_ROOT || '';
@@ -83,7 +84,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.4';
+const STAGE_VERSION = '0.66.5';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1280,6 +1281,7 @@ function useRoom(viewRef) {
   rosterRef.current = roster;
   const focusNameRef = React.useRef('');
   focusNameRef.current = focusName;
+  const deadRef = React.useRef(false);
   const ensureProfileRef = React.useRef(null);
   const sleepProfileRef = React.useRef(null);
   const cronWatcherRef = React.useRef(null);
@@ -1665,38 +1667,6 @@ function useRoom(viewRef) {
     return mentionedPeers(text, selfName);
   }
 
-  function mentionedRosterRows(text, selfBot) {
-    const raw = String(text || '');
-    const matches = [...raw.matchAll(/(?:^|[^A-Za-z0-9_])@([A-Za-z][\w-]*)\b/g)];
-    const rows = [];
-    const seen = new Set();
-    for (const m of matches) {
-      const handle = m[1].toLowerCase();
-      const row = rosterRef.current.find((r) =>
-        r.name.toLowerCase() === handle ||
-        r.name.toLowerCase().split(' · ')[0].toLowerCase() === handle ||
-        String(r.profile || '').toLowerCase() === handle);
-      if (!row) continue;
-      if (row.name === selfBot.name || row.profile === selfBot.profile) continue;
-      if (seen.has(row.profile)) continue;
-      seen.add(row.profile);
-      rows.push(row);
-    }
-    return rows;
-  }
-
-  async function wakeMentionedCold(text, selfBot) {
-    for (const row of mentionedRosterRows(text, selfBot)) {
-      if (clientsRef.current.some((b) => b.profile === row.profile || b.name === row.name)) continue;
-      const bot = await ensureProfileRef.current?.(row.profile);
-      if (!bot) {
-        if (!dead) setNotice(`${row.name}: mentioned but could not wake`);
-        continue;
-      }
-      triggerAddressed(bot);
-    }
-  }
-
   // Public, fire-and-forget address: the named member takes a turn in the shared
   // room. The reply is posted to the log; nothing is fed back to the asker.
   function triggerAddressed(peer) {
@@ -1765,6 +1735,7 @@ function useRoom(viewRef) {
 
   React.useEffect(() => {
     let dead = false;
+    deadRef.current = false;
 
     const updateToolStatus = (bot, toolName, status) => {
       const bubbleId = activeRef.current.get(bot.name);
@@ -2008,7 +1979,16 @@ function useRoom(viewRef) {
         streamTurnRef.current.delete(bot.name);
         segmentRef.current.delete(bot.name);
         if (text && !pass) {
-          wakeMentionedCold(text, bot).catch((e) => {
+          wakeColdMentions({
+            text,
+            selfBot: bot,
+            roster: rosterRef.current,
+            clients: clientsRef.current,
+            ensureProfile: ensureProfileRef.current,
+            triggerAddressed,
+            isAlive: () => !deadRef.current,
+            notify: setNotice,
+          }).catch((e) => {
             if (!dead) setNotice(`mention wake failed: ${e.message}`);
           });
         }
@@ -2543,6 +2523,7 @@ function useRoom(viewRef) {
 
     return () => {
       dead = true;
+      deadRef.current = true;
       cronWatcherRef.current?.stop();
       for (const t of watchTimersRef.current.values()) clearTimeout(t);
       watchTimersRef.current.clear();

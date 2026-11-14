@@ -92,9 +92,10 @@ plugin reads that profile’s `state.db` directly and imports:
 
 On first start it seeds from the latest feed-eligible public row for each profile, so that
 event is shown once; later rows are polled. It skips tool rows, reasoning, failed turns,
-hidden rows, private user prompts, and the profile’s own `Hermes Stage Room` session rows
-(those are already in the shared room). New profile speech and notifications mark the
-profile unread, so its tab gets the blue `●`.
+hidden rows, private user prompts, assistant `(pass)` rows, and the profile’s own
+`Hermes Stage Room` session rows (those are already in the shared room). Legacy feed cursors
+are reset once when the versioned feed state is first loaded. New profile speech and
+notifications mark the profile unread, so its tab gets the blue `●`.
 
 The feed is plugin-local; it does not change gateway routing or systemd configuration.
 Polling interval: `HERMES_STAGE_PROFILE_FEED_MS` (default 15000, minimum 5000).
