@@ -6,6 +6,20 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.2] - 2026-11-13
+
+### Fixed
+
+- Bot replies containing `@Name` now wake a cold profile and route the turn to it.
+  Previously only already-connected peers were triggered, so Seed’s `@Raja` reply did
+  not wake Raja. Tab, picker, and shift-arrow focus still do not wake.
+
+### Verified
+
+- Real scratch Stage: asking Seed to wake Raja produced Seed’s `@Raja` reply, Raja’s
+  session connected, and Raja began a turn with tool calls. The old Raja bot-chat
+  credential error did not recur on the new Stage session.
+
 ## [0.66.1] - 2026-11-13
 
 ### Fixed

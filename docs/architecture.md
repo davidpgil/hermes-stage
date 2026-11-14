@@ -29,6 +29,9 @@ transcript.
   assistant speech and cron notifications. Tool calls, failed turns, private user prompts,
   and Stage Room session duplicates are excluded. The feed is plugin-local and does not
   alter gateway routing.
+- **Explicit mentions wake a cold profile** — a bot reply containing `@Name` wakes
+  that cold profile so it can take the next turn. Tab, picker, and shift-arrow focus
+  still only change focus.
 - **Idle status refresh** — the focused bot's `session.info` is polled every 15 s while
   the room is idle, so the model/context row stays current without waiting for a turn.
 - **Screen-budgeted dialogs** — approval and profile-picker rows are deducted from the

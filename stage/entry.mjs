@@ -83,7 +83,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.1';
+const STAGE_VERSION = '0.66.2';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -1665,6 +1665,38 @@ function useRoom(viewRef) {
     return mentionedPeers(text, selfName);
   }
 
+  function mentionedRosterRows(text, selfBot) {
+    const raw = String(text || '');
+    const matches = [...raw.matchAll(/(?:^|[^A-Za-z0-9_])@([A-Za-z][\w-]*)\b/g)];
+    const rows = [];
+    const seen = new Set();
+    for (const m of matches) {
+      const handle = m[1].toLowerCase();
+      const row = rosterRef.current.find((r) =>
+        r.name.toLowerCase() === handle ||
+        r.name.toLowerCase().split(' · ')[0].toLowerCase() === handle ||
+        String(r.profile || '').toLowerCase() === handle);
+      if (!row) continue;
+      if (row.name === selfBot.name || row.profile === selfBot.profile) continue;
+      if (seen.has(row.profile)) continue;
+      seen.add(row.profile);
+      rows.push(row);
+    }
+    return rows;
+  }
+
+  async function wakeMentionedCold(text, selfBot) {
+    for (const row of mentionedRosterRows(text, selfBot)) {
+      if (clientsRef.current.some((b) => b.profile === row.profile || b.name === row.name)) continue;
+      const bot = await ensureProfileRef.current?.(row.profile);
+      if (!bot) {
+        if (!dead) setNotice(`${row.name}: mentioned but could not wake`);
+        continue;
+      }
+      triggerAddressed(bot);
+    }
+  }
+
   // Public, fire-and-forget address: the named member takes a turn in the shared
   // room. The reply is posted to the log; nothing is fed back to the asker.
   function triggerAddressed(peer) {
@@ -1975,6 +2007,11 @@ function useRoom(viewRef) {
         activeRef.current.delete(bot.name);
         streamTurnRef.current.delete(bot.name);
         segmentRef.current.delete(bot.name);
+        if (text && !pass) {
+          wakeMentionedCold(text, bot).catch((e) => {
+            if (!dead) setNotice(`mention wake failed: ${e.message}`);
+          });
+        }
         setLiveMetrics((prev) => {
           const cur = prev[bot.name] || { startedAt: Date.now(), chars: 0 };
           const seconds = Math.max(0.1, (Date.now() - cur.startedAt) / 1000);
