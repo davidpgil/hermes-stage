@@ -67,6 +67,9 @@ changelog entry.
 stage a changelog update in the same commit, and a version bump must add a
 `## [<version>]` section.
 
+The plugin manifest's external Node check requires Node 22.5+ to match the
+`node:sqlite` dependency used by the profile feed.
+
 ## Git hooks
 
 Enable the tracked hooks once per checkout:

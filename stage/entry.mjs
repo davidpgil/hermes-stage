@@ -83,7 +83,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.3';
+const STAGE_VERSION = '0.66.4';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;

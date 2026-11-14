@@ -6,6 +6,15 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.4] - 2026-11-13
+
+### Changed
+
+- Plugin manifest description is neutral and describes lazy profile loading, cron wakes,
+  and mirrored public speech/notifications instead of removed `@everyone` routing.
+- Manifest Node check now requires Node 22.5+, matching `node:sqlite` and the package
+  engine declaration.
+
 ## [0.66.3] - 2026-11-13
 
 ### Changed

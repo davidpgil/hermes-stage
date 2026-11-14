@@ -1,12 +1,13 @@
 name: hermes-stage
 label: Hermes Stage
 kind: standalone
-version: "0.66.3"
+version: "0.66.4"
 description: >-
   Hermes Stage launches a multi-profile terminal bot room over Hermes' local gateway.
   It owns one shared room transcript with profile lens tabs; messages can target one
-  profile, everyone, or the whole room. It includes Stage-specific status, tool, and
-  diff cards.
+  profile or the whole room. Profiles load lazily, due cron jobs wake them, and public
+  profile speech and cron notifications are mirrored into the room. It includes
+  Stage-specific status, tool, and diff cards.
 author: David Philipe Gil
 license: MIT
 requires_hermes: ">=0.23.1"
@@ -15,7 +16,7 @@ platforms:
   - macos
 external_dependencies:
   - name: node
-    check: "node -e \"process.exit(process.versions.node.split('.')[0] >= 22 ? 0 : 1)\""
+    check: "node -e \"const [a,b]=process.versions.node.split('.').map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)\""
 provides_tools: []
 provides_hooks: []
 requires_env: []
