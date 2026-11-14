@@ -6,6 +6,26 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.6] - 2026-11-14
+
+### Changed
+
+- Cron job output is rendered as readable room text instead of a dim machine side note.
+  The `[Cronjob "<name>" output …]` transport header is stripped and replaced by a dim
+  `⚙ cron · <name>` tag, so a delivered brief or digest keeps normal text color and the
+  profile's border.
+- Other automation kinds — background-process completions, diagnostics, delegation
+  notes, auto-continue — remain dim side notes. Cron reports are still classified as
+  automation: they never count as an expected bot turn and never trigger peer rounds.
+- The profile speech feed applies the same split: a cron notification row from a
+  profile's `state.db` becomes a readable bubble tagged `⚙ cron · <name>` instead of a
+  gray machine note, while assistant speech keeps its previous rendering.
+
+### Tests
+
+- Added regression coverage for cron-report detection, transport-header stripping, and
+  the machine-flag split between report bubbles and notice bubbles.
+
 ## [0.66.5] - 2026-11-14
 
 ### Fixed

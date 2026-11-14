@@ -23,8 +23,10 @@ broadcast address.
 - Public profile speech from non-default profiles — final assistant text and cron
   notification text — is mirrored into the room; tool calls, failed turns, and private
   user prompts are skipped.
-- Automation events (cron/internal notifications and process completions) appear as dim grey
-  side notes and mark the profile unread with a blue indicator.
+- Automation events (process completions, diagnostics, delegation notes) appear as dim grey
+  side notes and mark the profile unread with a blue indicator. Cron job reports are the
+  exception: the `[Cronjob "<name>" output …]` header is stripped and replaced with a dim
+  `⚙ cron · <name>` tag, so a delivered brief or digest renders as readable text.
 - Interrupted turns persist with a marker instead of being lost on a crash.
 - The model/context row refreshes while idle instead of only after a turn.
 - Dialogs fit the screen: long approval text truncates with a marker, and the profile
@@ -109,7 +111,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.66.5**
+Current release: **0.66.6**
 
 ## License
 

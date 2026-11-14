@@ -32,7 +32,7 @@ import { retryRpc } from './rpc-retry.mjs';
 import { serializeRoomBubbles, restoreRoomBubbles } from './persistence.mjs';
 import { resolveStatusRefreshMs, shouldRefreshRuntime } from './status-refresh.mjs';
 import { CronWatcher, DEFAULT_WATCH_HOLD_MS } from './cron-watch.mjs';
-import { automationText, isAutomationTurn, makeAutomationBubble } from './automation.mjs';
+import { automationText, isAutomationTurn, isCronReport, cronReportText, makeAutomationBubble, makeReportBubble } from './automation.mjs';
 import { startProfileFeed } from './profile-feed.mjs';
 import { wakeColdMentions } from './cold-wake.mjs';
 
@@ -84,7 +84,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.5';
+const STAGE_VERSION = '0.66.6';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -963,6 +963,7 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
       h(Box, { flexDirection: 'column', paddingX: 1 },
         user ? null : h(Text, { color: machine ? 'gray' : t.label, bold: !machine, dimColor: machine, wrap: 'truncate-end' },
           `${b.icon ? `${b.icon}  ` : ''}${t.toolPrefix} ${b.speaker}${b.interrupted ? '  · interrupted' : ''}`),
+        b.tag ? h(Text, { color: t.muted, dimColor: true, wrap: 'truncate-end' }, b.tag) : null,
         parts.map((part, i) => {
           if (part.kind === 'tool') {
             return renderToolPart(part, t, i, { cwd, width: Math.max(20, bubbleWidth - 4) });
@@ -1810,12 +1811,17 @@ function useRoom(viewRef) {
       if (t === 'message.start') {
         if (String(p.payload?.display_kind || '') === 'hidden') return;
         if (isAutomationTurn(p.payload)) {
-          // Automation is not an expected bot turn. Show it as a dim side note
-          // rather than dropping it or treating it as conversational speech.
+          // Automation is not an expected bot turn. Cron reports carry real
+          // content (a brief, a digest) so they render as readable output; the
+          // rest stay dim side notes rather than being dropped or mistaken for
+          // conversational speech.
           if (machineActiveRef.current.has(bot.name)) return;
           const id = newId('m');
           machineActiveRef.current.set(bot.name, id);
-          const entry = makeAutomationBubble(bot, p.payload, id, automationText(p.payload));
+          const report = isCronReport(p.payload);
+          const entry = report
+            ? makeReportBubble(bot, p.payload, id)
+            : makeAutomationBubble(bot, p.payload, id, automationText(p.payload));
           setLog((prev) => [...prev, entry]);
           return;
         }
@@ -1898,12 +1904,12 @@ function useRoom(viewRef) {
         if (machineId) {
           flushPendingDeltas();
           const cur = bubblesRef.current.find((b) => b.id === machineId);
-          const text = ((cur && cur.text) || automationText(p.payload) || '').trim();
+          const text = ((cur && cur.text) || (isCronReport(p.payload) ? cronReportText(p.payload) : automationText(p.payload)) || '').trim();
           if (!text) {
             setLog((prev) => prev.filter((b) => b.id !== machineId));
           } else {
             setLog((prev) => prev.map((b) => (b.id === machineId
-              ? { ...b, text, done: true, machine: true, parts: [{ kind: 'text', text }] }
+              ? { ...b, text, done: true, parts: [{ kind: 'text', text }] }
               : b)));
           }
           machineActiveRef.current.delete(bot.name);
@@ -1913,10 +1919,13 @@ function useRoom(viewRef) {
           return;
         }
         if (isAutomationTurn(p.payload)) {
-          const text = automationText(p.payload).trim();
+          const report = isCronReport(p.payload);
+          const text = (report ? cronReportText(p.payload) : automationText(p.payload)).trim();
           if (!text) return;
           const id = newId('m');
-          const entry = makeAutomationBubble(bot, p.payload, id, text);
+          const entry = report
+            ? makeReportBubble(bot, p.payload, id)
+            : makeAutomationBubble(bot, p.payload, id, text);
           setLog((prev) => [...prev, { ...entry, done: true, parts: [{ kind: 'text', text }] }]);
           if (viewRef.current !== bot.name) {
             setUnread((prev) => ({ ...prev, [bot.name]: (prev[bot.name] || 0) + 1 }));

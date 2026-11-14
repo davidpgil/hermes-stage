@@ -18,6 +18,9 @@ export const FEED_STATE_VERSION = 2;
 
 const CRON_PREFIX = /^\[Cronjob\s+[\s\S]*?\s+output\s+—\s+scheduled job, not the user\. Review it, act on anything that needs action, and summarize for the chat\.\]\s*/;
 
+// Job name from the same transport header, used for the report tag.
+const CRON_JOB_NAME = /^\[Cronjob\s+"?([^"\]]*?)"?\s+output\s+—/;
+
 const PUBLIC_FEED_FILTER = `
   s.title NOT LIKE 'Hermes Stage Room%'
   AND (s.title = 'Bot Chat' OR s.source = 'cron')
@@ -34,6 +37,11 @@ const PUBLIC_FEED_FILTER = `
 
 export function cleanCronNotification(text) {
   return String(text || '').replace(CRON_PREFIX, '').trim();
+}
+
+export function cronJobNameFromText(text) {
+  const match = CRON_JOB_NAME.exec(String(text || '').trim());
+  return match ? String(match[1] || '').trim() : null;
 }
 
 export function loadFeedState(path) {
@@ -111,7 +119,7 @@ export function speechRows(dbPath, cursor = { ts: 0, id: 0 }) {
   }
 }
 
-export function makeFeedBubble({ speaker, icon, text, machine, at, id }) {
+export function makeFeedBubble({ speaker, icon, text, machine, tag = null, at, id }) {
   return {
     id,
     speaker,
@@ -124,6 +132,7 @@ export function makeFeedBubble({ speaker, icon, text, machine, at, id }) {
     icon: icon || '',
     auto: true,
     machine: Boolean(machine),
+    tag,
     parts: [{ kind: 'text', text }],
     asksPeer: false,
   };
@@ -179,10 +188,12 @@ export function startProfileFeed({
         continue;
       }
       for (const message of rows) {
-        const machine = message.role === 'user';
+        // A cron row is a report the job delivered, so it renders as content
+        // (normal text) with a dim tag naming the job — not as a machine note.
+        const isReport = message.role === 'user';
         const rawText = String(message.content || '').trim();
         if (message.role === 'assistant' && rawText === '(pass)') continue;
-        const text = machine ? cleanCronNotification(rawText) : rawText;
+        const text = isReport ? cleanCronNotification(rawText) : rawText;
         if (!text) continue;
         const id = `feed:${profile}:${message.id}`;
         const at = Number(message.timestamp || 0) * 1000;
@@ -190,7 +201,8 @@ export function startProfileFeed({
           speaker: row.name,
           icon: row.icon,
           text,
-          machine,
+          machine: false,
+          tag: isReport ? `⚙ cron · ${cronJobNameFromText(rawText) || 'scheduled'}` : null,
           at,
           id,
         }));

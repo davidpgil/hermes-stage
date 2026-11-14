@@ -110,13 +110,17 @@ does. If the profile was already awake, it does nothing.
 ## Automation messages
 
 Automation events are shown as dim grey side notes in the room instead of being dropped.
-They are not normal bot turns: they do not trigger peer rounds, but they do mark the
-profile unread at completion, so its tab shows the blue `●` if you are not viewing it.
+Cron job output is the one exception: it carries real content (a brief, digest or report),
+so the `[Cronjob "<name>" output …]` transport header is stripped and replaced by a dim
+`⚙ cron · <name>` tag, and the body renders in normal text color on the profile's border.
+Automation is still not a normal bot turn: it does not trigger peer rounds, but it does mark
+the profile unread at completion, so its tab shows the blue `●` if you are not viewing it.
 Hidden context-compaction rows remain skipped.
 
 This covers cron/internal notifications, background-process completions, and similar
 automation kinds. The profile speech feed is the history-ingestion path for profile cron
-notes; gateway automation events still render when they arrive live.
+notes; it applies the same rule — a cron report is shown as readable content with the
+`⚙ cron · <name>` tag. Gateway automation events still render when they arrive live.
 
 ## Reconnect
 

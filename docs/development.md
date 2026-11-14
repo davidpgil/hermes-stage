@@ -14,7 +14,7 @@ stage/reconnect.mjs    Bounded reconnect policy
 stage/status.mjs       Status-board source resolution
 stage/rpc-retry.mjs    Retry policy for idempotent RPC reads
 stage/cron-watch.mjs   Non-LLM cron due-time watcher
-stage/automation.mjs   Automation-event classification and dim-note builder
+stage/automation.mjs   Automation-event classification, cron-report split, dim-note builders
 stage/persistence.mjs  Transcript persistence and interrupted-turn marking
 stage/status-refresh.mjs  Idle status-refresh policy
 stage/package.json     JavaScript package metadata

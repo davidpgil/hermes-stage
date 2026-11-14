@@ -28,7 +28,29 @@ export function automationText(payload) {
   return String(payload.display_text ?? payload.text ?? '');
 }
 
-export function makeAutomationBubble(bot, payload, id, text = automationText(payload)) {
+// A cron job's admitted output arrives as an internal_notification whose text
+// starts with a fixed transport header:
+//   [Cronjob "<name>" output — scheduled job, not the user. Review it, ...]
+// That payload carries real content (a brief/report), not machine chatter, so it
+// must render as readable text rather than as a dim side note.
+const CRON_HEADER = /^\[Cronjob "([^"]+)" output\b[^\]]*\]\s*/;
+
+export function cronJobName(payload) {
+  if (!payload) return null;
+  const match = CRON_HEADER.exec(automationText(payload));
+  return match ? match[1] : null;
+}
+
+export function isCronReport(payload) {
+  return cronJobName(payload) !== null;
+}
+
+// The report body with the transport header stripped for display.
+export function cronReportText(payload) {
+  return automationText(payload).replace(CRON_HEADER, '');
+}
+
+export function makeAutomationBubble(bot, payload, id, text = automationText(payload), { machine = true, tag = null } = {}) {
   return {
     id,
     speaker: bot.name,
@@ -40,8 +62,19 @@ export function makeAutomationBubble(bot, payload, id, text = automationText(pay
     role: 'bot',
     icon: bot.icon,
     auto: true,
-    machine: true,
+    machine,
+    tag,
     parts: [{ kind: 'text', text }],
     asksPeer: false,
   };
+}
+
+// Cron reports stay classified as automation (never an expected bot turn) but
+// drop the machine styling: full-color text plus a dim tag naming the job.
+export function makeReportBubble(bot, payload, id) {
+  const job = cronJobName(payload);
+  return makeAutomationBubble(bot, payload, id, cronReportText(payload), {
+    machine: false,
+    tag: job ? `⚙ cron · ${job}` : '⚙ scheduled',
+  });
 }

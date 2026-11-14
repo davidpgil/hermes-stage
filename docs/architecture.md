@@ -22,12 +22,17 @@ transcript.
   and status board rather than as active or error states.
 - **Cron watcher** — reads profile `cron/jobs.json`, wakes a profile for its next job
   window, and releases it after an idle hold. Non-LLM; the gateway still runs the job.
-- **Automation side notes** — automation events are rendered as dim grey room notes, not
-  normal bot turns. They do not trigger peer rounds; at completion they mark the profile
-  unread so its tab shows the blue indicator. Hidden context rows remain skipped.
+- **Automation side notes, cron reports as content** — automation events are rendered as
+  dim grey room notes, not normal bot turns, except cron job output: the `[Cronjob …]`
+  transport header is stripped and replaced by a dim `⚙ cron · <name>` tag while the
+  report body keeps normal text color. Automation does not trigger peer rounds; at
+  completion it marks the profile unread so its tab shows the blue indicator. Hidden
+  context rows remain skipped.
 - **Public profile speech feed** — reads each non-default profile’s `state.db` for final
-  assistant speech and cron notifications. Tool calls, failed turns, private user prompts,
-  assistant `(pass)` rows, and Stage Room session duplicates are excluded. Feed cursors are
+  assistant speech and cron notifications. Cron notification rows are rendered as readable
+  content tagged `⚙ cron · <name>`, not as gray machine notes. Tool calls, failed turns,
+  private user prompts, assistant `(pass)` rows, and Stage Room session duplicates are
+  excluded. Feed cursors are
   versioned; legacy unversioned cursors are reset and re-seeded instead of trusted. The feed
   is plugin-local and does not alter gateway routing.
 - **Explicit mentions wake a cold profile** — a bot reply containing `@Name` wakes
