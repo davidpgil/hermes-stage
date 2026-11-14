@@ -6,6 +6,24 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.7] - 2026-11-14
+
+### Fixed
+
+- A long room no longer costs a full transcript layout on every frame. The transcript is
+  windowed to the visible tail (viewport plus the current scroll offset, capped at eight
+  screens); scrolling up pulls older bubbles in as needed.
+- The 400 ms animation tick now requires real work — a live turn, a tool/thinking entry,
+  or a bubble still arriving. The old gate treated any non-terminal status string as
+  streaming, so a profile parked at `connecting…` kept the tick alive indefinitely and
+  re-laid out the whole room for a spinner nobody needed. Pure connecting states tick at
+  1 s, and an idle room does not tick at all.
+
+### Tests
+
+- Added coverage for the bubble line budget and the tail-window selection (newest kept,
+  contiguous slice, budget filled, empty room).
+
 ## [0.66.6] - 2026-11-14
 
 ### Changed

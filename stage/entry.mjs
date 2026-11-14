@@ -84,7 +84,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.6';
+const STAGE_VERSION = '0.66.7';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -491,6 +491,48 @@ export function fitText(s, width) {
     used += glyphWidth;
   }
   return `${out}…`;
+}
+
+/**
+ * Approximate row budget for one bubble at a given frame width.
+ * Over-estimating is safe (renders one extra bubble); under-estimating leaves a
+ * gap at the top of the transcript viewport. Used to window the transcript
+ * instead of laying out every stored bubble on every frame.
+ */
+export function bubbleLineBudget(b, bubbleWidth, displayText = null) {
+  const width = Math.max(8, bubbleWidth - 4);
+  const parts = Array.isArray(b.parts) && b.parts.length
+    ? b.parts
+    : [{ kind: 'text', text: displayText == null ? b.text : displayText }];
+  const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
+  let lines = 0;
+  parts.forEach((part, i) => {
+    if (part.kind === 'tool') { lines += 4; return; }
+    if (part.kind === 'diff') { lines += 12; return; }
+    const raw = displayText != null && i === lastTextIndex ? displayText : part.text;
+    const text = String(raw == null ? '' : raw);
+    if (!text) { lines += 1; return; }
+    for (const row of text.split('\n')) {
+      const clean = row.replace(/[ \t]+$/, '');
+      if (!clean) { lines += 1; continue; }
+      lines += Math.max(1, Math.ceil(stringWidth(clean) / width));
+    }
+  });
+  // marginTop 1 + top rule 1 + bottom rule 1 + speaker label 1 (+ tag 1)
+  return Math.max(1, lines) + 3 + (b.tag ? 1 : 0) + (b.speaker === 'You' ? 0 : 1);
+}
+
+/** Tail slice of bubbles that fits a line budget, oldest first. */
+export function tailWindow(items, lineBudget, bubbleWidth, getDisplay = () => null) {
+  const out = [];
+  let used = 0;
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i];
+    out.push(item);
+    used += bubbleLineBudget(item, bubbleWidth, getDisplay(item));
+    if (used >= lineBudget) break;
+  }
+  return out.reverse();
 }
 
 
@@ -1368,10 +1410,16 @@ function useRoom(viewRef) {
     setQueues(next);
   }, []);
 
-  const streaming = Object.values(statuses).some((s) =>
-    s && s !== 'ready' && s !== 'error' && s !== 'not-ready' && s !== 'offline')
+  // Animation gate. The old gate treated any non-terminal status string as
+  // "streaming", so a profile parked at `connecting…` (or a status left behind
+  // by a missed turn event) kept the 400 ms tick running forever and re-laid out
+  // the entire transcript for nothing. Animate only for a live turn or a
+  // bubble that is genuinely still arriving.
+  const liveTurn = Object.values(statuses).some((s) =>
+    typeof s === 'string' && (s === 'streaming…' || s === 'waiting…' || s === 'queued…' || s.startsWith('connecting')))
     || Object.values(tools).some((t) => t && (t.draftName || Object.keys(t.active || {}).length > 0))
     || Object.keys(thinking).length > 0;
+  const animating = liveTurn || bubbles.some((b) => !b.done);
 
   const setRuntimeFor = (bot, info) => {
     if (!bot) return;
@@ -1517,10 +1565,12 @@ function useRoom(viewRef) {
   }
 
   React.useEffect(() => {
-    if (!streaming) return undefined;
-    const id = setInterval(() => setTick((t) => t + 1), 400);
+    if (!animating) return undefined;
+    // A real turn is worth 400 ms; a lone `connecting…` spinner is not, and a
+    // 1 s tick keeps it cheap.
+    const id = setInterval(() => setTick((t) => t + 1), liveTurn ? 400 : 1000);
     return () => clearInterval(id);
-  }, [streaming]);
+  }, [animating, liveTurn]);
 
   function peerExample(bot) {
     const peer = clientsRef.current.find((c) => c !== bot && c.name && !c.offline);
@@ -3291,7 +3341,7 @@ function Stage() {
     return texts.length ? texts[texts.length - 1].text : b.text;
   };
 
-  const completed = lens.filter((b) => b.done && (b.text || hasDiffPart(b)));
+  const completedAll = lens.filter((b) => b.done && (b.text || hasDiffPart(b)));
   const active = lens.filter((b) => !b.done);
 
   // Fixed chrome: one version row, one scroll-hint row, the status board,
@@ -3325,6 +3375,12 @@ function Stage() {
   const scrollLine = Math.min(scrollUp, maxScroll);
   const contentOffsetY = maxScroll - scrollLine;
   const hiddenNewer = scrollLine;
+
+  // Render only the tail that can actually be seen. Ink rebuilds and lays out
+  // the whole rendered tree on every frame, so an unwindowed 265-bubble room
+  // was re-laid out on each animated tick no matter where the viewport sat.
+  const transcriptBudget = viewportHeight + Math.max(40, scrollLine) + 12;
+  const completed = tailWindow(completedAll, Math.min(transcriptBudget, viewportHeight * 8), bubbleWidth);
 
   const statusBar = h(Box, { marginTop: 0, height: maxStatusRows, flexDirection: 'column', width: Math.max(20, columns - 2), flexShrink: 0 },
     ...statusRows.map((row) => {

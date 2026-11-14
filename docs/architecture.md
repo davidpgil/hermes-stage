@@ -72,6 +72,14 @@ degraded placeholder from the roster that shows the profile's configured model.
   updating the room log for every token.
 - Completed bubbles are memoized, so a spinner tick or another profile's stream
   does not reconcile every completed transcript bubble.
+- The transcript is windowed: only the tail of the room that fits the viewport
+  (plus the current scroll offset, capped at eight screens) is laid out. Ink
+  rebuilds the rendered tree per frame, so an unwindowed 265-bubble room was
+  re-laid out in full on every animated tick.
+- The animation tick is gated on real work — a live turn, a tool/thinking entry,
+  or a bubble that is still arriving. A non-terminal status string alone (e.g.
+  `connecting…`) no longer keeps the 400 ms tick alive; that case uses 1 s, and
+  an idle room uses none.
 - Room-state writes use compact JSON rather than pretty-printed JSON.
 - Admission is capacity-aware: the endpoint's `/props` slot count sizes the gate, so
   queued turns are dispatched as slots free instead of flooding one brain.

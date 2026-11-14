@@ -1,7 +1,7 @@
 name: hermes-stage
 label: Hermes Stage
 kind: standalone
-version: "0.66.6"
+version: "0.66.7"
 description: >-
   Hermes Stage launches a multi-profile terminal bot room over Hermes' local gateway.
   It owns one shared room transcript with profile lens tabs; messages can target one

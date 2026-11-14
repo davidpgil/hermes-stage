@@ -95,8 +95,12 @@ Approval cards use number keys, Up/Down plus Enter, or Esc to deny. Existing
 ## Performance
 
 Stage coalesces streamed deltas at roughly 80 ms, memoizes completed transcript
-bubbles, and writes compact room-state JSON. Spinner ticks and stream updates
-therefore do not force every completed bubble to reconcile again.
+bubbles, and writes compact room-state JSON. The transcript is windowed to the
+rows that can actually be seen (viewport plus current scroll offset, capped at
+eight screens), so a long room is not re-laid out in full on every frame. The
+animation tick only runs while a turn is genuinely live or a bubble is still
+arriving; a profile parked at `connecting…` gets a 1 s tick, and an idle room
+gets none.
 
 ## Documentation
 
@@ -111,7 +115,7 @@ therefore do not force every completed bubble to reconcile again.
 
 ## Version
 
-Current release: **0.66.6**
+Current release: **0.66.7**
 
 ## License
 
