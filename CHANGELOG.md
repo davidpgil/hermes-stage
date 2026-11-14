@@ -6,19 +6,30 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.3] - 2026-11-13
+
+### Changed
+
+- Public sanitization hook now rejects fixed profile counts and optional local
+  project/crew names from an ignored `.private-sanitize.txt` denylist. The public hook
+  itself stays neutral; local names are not published.
+- Scrubbed local-name examples from `CHANGELOG.md`, `docs/using-stage.md`, and the
+  profile-feed comment.
+- Developer docs describe the local denylist and the public/neutral boundary.
+
 ## [0.66.2] - 2026-11-13
 
 ### Fixed
 
 - Bot replies containing `@Name` now wake a cold profile and route the turn to it.
-  Previously only already-connected peers were triggered, so Seed’s `@Raja` reply did
-  not wake Raja. Tab, picker, and shift-arrow focus still do not wake.
+  Previously only already-connected peers were triggered, so a bot-reply mention did
+  not wake a cold profile. Tab, picker, and shift-arrow focus still do not wake.
 
 ### Verified
 
-- Real scratch Stage: asking Seed to wake Raja produced Seed’s `@Raja` reply, Raja’s
-  session connected, and Raja began a turn with tool calls. The old Raja bot-chat
-  credential error did not recur on the new Stage session.
+- Real scratch Stage: asking the default profile to wake a named profile produced the
+  mention, the named profile connected, and began a turn with tool calls. The old
+  bot-chat credential error did not recur on the new Stage session.
 
 ## [0.66.1] - 2026-11-13
 
@@ -88,9 +99,9 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ### Fixed
 
-- Mention parsing now accepts trailing punctuation: `@Shir,` routes to Shir only
-  instead of falling back to a room broadcast. The lookahead permits any non-handle
-  character after the name.
+- Mention parsing now accepts trailing punctuation after a handle: `@Name,` routes to
+  only that member instead of falling back to a room broadcast. The lookahead permits
+  any non-handle character after the name.
 
 ### Verified
 

@@ -77,7 +77,10 @@ scripts/install-hooks.sh
 
 The hooks enforce:
 
-- no private paths, hostnames, credentials, or internal identifiers in staged content;
+- no private paths, credentials, fixed profile counts, or local example names in
+  staged content;
+- local project/crew names come from an optional ignored `.private-sanitize.txt`
+  denylist, so those names are not published in the hook itself;
 - tests are local-only: the pre-commit hook refuses staged test files and the
   pre-push hook refuses any ref whose tree contains them;
 - version consistency across the release surface;

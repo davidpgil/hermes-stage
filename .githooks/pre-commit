@@ -13,7 +13,17 @@ if [ "${#staged[@]}" -eq 0 ]; then
 fi
 
 # Private-path / credential markers. The hook is exempt from scanning itself.
-private_re='(/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/|192\.168\.[0-9]+\.[0-9]+|10\.10\.10\.[0-9]+|\b(wrx80e|furnace|x10dri)\b|\bArchitect\b|GITHUB_TOKEN|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY)'
+# Local project/crew names and fixed profile counts come from an ignored private
+# denylist so the public hook itself stays neutral.
+private_re='(/home/[A-Za-z0-9._-]+/|/Users/[A-Za-z0-9._-]+/|192\.168\.[0-9]+\.[0-9]+|10\.10\.10\.[0-9]+|GITHUB_TOKEN|ghp_[A-Za-z0-9]+|github_pat_[A-Za-z0-9_]+|BEGIN (RSA|OPENSSH|EC|DSA) PRIVATE KEY)'
+profile_count_re='([0-9]+[[:space:]]+profiles?|profiles?[[:space:]]*:[[:space:]]*[0-9]+)'
+local_denylist="$ROOT/.private-sanitize.txt"
+local_names=()
+if [ -f "$local_denylist" ]; then
+  while IFS= read -r name; do
+    [ -n "$name" ] && local_names+=("$name")
+  done < "$local_denylist"
+fi
 
 for path in "${staged[@]}"; do
   case "$path" in
@@ -24,6 +34,16 @@ for path in "${staged[@]}"; do
     note "sanitization ERROR: private/local marker found in $path"
     fail=1
   fi
+  if printf '%s\n' "$content" | grep -nEi "$profile_count_re"; then
+    note "sanitization ERROR: fixed profile count found in $path"
+    fail=1
+  fi
+  for name in "${local_names[@]}"; do
+    if printf '%s\n' "$content" | grep -Fwq -- "$name"; then
+      note "sanitization ERROR: local example '$name' found in $path"
+      fail=1
+    fi
+  done
 done
 
 # Tests are local-only: they must never be committed or pushed to GitHub.

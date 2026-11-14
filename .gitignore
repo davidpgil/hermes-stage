@@ -1,5 +1,6 @@
 stage/node_modules/
 stage/tests/
+.private-sanitize.txt
 __pycache__/
 *.pyc
 .DS_Store

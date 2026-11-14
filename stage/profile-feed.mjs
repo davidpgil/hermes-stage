@@ -42,7 +42,7 @@ export function saveFeedState(path, state) {
 }
 
 /**
- * Seed a profile from its most recent feed-eligible public row, not from the
+ * Start a profile from its most recent feed-eligible public row, not from the
  * newest row of any kind. A newer tool row or Stage Room row must not push the
  * cursor past an unseen notification or speech item.
  */
