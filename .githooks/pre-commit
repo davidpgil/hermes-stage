@@ -172,6 +172,18 @@ if [ -n "$previous_plugin_version" ] && [ "$plugin_version" != "$previous_plugin
   fi
 fi
 
+# Code changes must keep the workspace GOAL.md (the design source of truth) at
+# least as new as the code they touch. Public clones have no workspace tree, so
+# the guard is local-only.
+if printf '%s\n' "${staged[@]}" | grep -qE '^stage/[^/]+\.mjs$'; then
+  goal_sync="${HERMES_STAGE_GOAL_SYNC:-$HOME/.hermes/workspace/hermes-stage/scripts/check-goal-sync.sh}"
+  if [ -x "$goal_sync" ]; then
+    if ! STAGE_CODE_DIR="$ROOT/stage" "$goal_sync"; then
+      fail=1
+    fi
+  fi
+fi
+
 if [ "$fail" -ne 0 ]; then
   note 'pre-commit: sanitization/docs gate failed; fix the files instead of bypassing with --no-verify.'
   exit 1

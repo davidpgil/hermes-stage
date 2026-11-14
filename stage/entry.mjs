@@ -84,7 +84,7 @@ const PROFILE_FEED_STATE_PATH = process.env.HERMES_STAGE_FEED_STATE
 const PROFILE_FEED_MS = Math.max(5000, Number(process.env.HERMES_STAGE_PROFILE_FEED_MS) || 15000);
 const DIFF_ADDED_BG = '#14532d';
 const DIFF_REMOVED_BG = '#7f1d1d';
-const STAGE_VERSION = '0.66.7';
+const STAGE_VERSION = '0.66.8';
 
 function getGrant(home) {
   const helper = `${ROOT}/ui-tui/dist/scripts/gateway_bootstrap.py`;
@@ -494,12 +494,71 @@ export function fitText(s, width) {
 }
 
 /**
+ * Ambient automation rows — background-process notices, delegation completions,
+ * diagnostics — are system chatter, not room speech. They render as a full-width
+ * centred row with no bubble frame. A cron report is delivered as normal content
+ * (machine:false), so a profile that actually says or does something keeps its
+ * bubble; only unattributed machine chatter loses the frame.
+ */
+export function isAmbientMachine(b) {
+  return Boolean(b && b.machine === true);
+}
+
+/** Left for the user and for a bot addressing a peer; right for ordinary replies. */
+export function bubbleAlignment(b) {
+  if (!b) return 'flex-end';
+  if (isAmbientMachine(b)) return 'center';
+  if (b.speaker === 'You') return 'flex-start';
+  return b.asksPeer === true ? 'flex-start' : 'flex-end';
+}
+
+/** Centre one line inside `width`, preserving display width for wide glyphs. */
+export function centerLine(text, width) {
+  const w = stringWidth(text);
+  if (w >= width) return text;
+  const left = Math.floor((width - w) / 2);
+  return `${' '.repeat(left)}${text}${' '.repeat(width - w - left)}`;
+}
+
+/**
+ * Wrap `text` to `width` and centre every line, so the row spans the full frame.
+ * Exported so the layout is testable without mounting Ink.
+ */
+export function machineRowLines(text, width) {
+  const frame = Math.max(8, width);
+  const clean = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+  const lines = [];
+  for (const raw of clean.split('\n')) {
+    if (!raw.trim()) {
+      lines.push(' '.repeat(frame));
+      continue;
+    }
+    let current = '';
+    for (const word of raw.trim().split(/ +/)) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (!current || stringWidth(candidate) <= frame) {
+        current = candidate;
+      } else {
+        lines.push(centerLine(current, frame));
+        current = word;
+      }
+    }
+    if (current) lines.push(centerLine(current, frame));
+  }
+  return lines.length ? lines : [' '.repeat(frame)];
+}
+
+/**
  * Approximate row budget for one bubble at a given frame width.
  * Over-estimating is safe (renders one extra bubble); under-estimating leaves a
  * gap at the top of the transcript viewport. Used to window the transcript
  * instead of laying out every stored bubble on every frame.
  */
 export function bubbleLineBudget(b, bubbleWidth, displayText = null) {
+  if (isAmbientMachine(b)) {
+    const text = displayText == null ? (b.text || '') : displayText;
+    return machineRowLines(text, Math.max(8, bubbleWidth)).length + 1;
+  }
   const width = Math.max(8, bubbleWidth - 4);
   const parts = Array.isArray(b.parts) && b.parts.length
     ? b.parts
@@ -972,7 +1031,7 @@ function renderToolPart(part, t, partIndex = 0, ctx = {}) {
   return h(Box, { key: `tool-part-${partIndex}`, flexDirection: 'column' }, children);
 }
 
-function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) {
+export function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) {
   const user = b.speaker === 'You';
   const machine = b.machine === true;
   const parts = Array.isArray(b.parts) && b.parts.length
@@ -982,8 +1041,29 @@ function Bubble({ b, displayText, t, bubbleWidth, bodyWidth, bots, cwd, tick }) 
   const lastTextIndex = parts.reduce((idx, part, i) => (part.kind === 'text' ? i : idx), -1);
   const dots = b.done ? '' : '.'.repeat(1 + (tick % 3));
   const bubbleText = displayText == null ? (b.text || '') : displayText;
-  const asksPeer = !user && !machine && (b.asksPeer || bots.some((peer) => peer.name !== b.speaker && mentionsMember(peer.name, bubbleText)));
-  const align = user || asksPeer ? 'flex-start' : 'flex-end';
+  const ambient = isAmbientMachine(b);
+
+  // System chatter gets its own full-width centred row: no bubble frame, no
+  // speaker label. Anything a profile actually says or does keeps a bubble.
+  if (ambient) {
+    const rows = machineRowLines(b.done ? bubbleText : `${bubbleText}${dots}`, bodyWidth);
+    return h(Box, {
+      width: bodyWidth,
+      flexShrink: 0,
+      flexDirection: 'column',
+      marginTop: 1,
+      alignItems: 'center',
+    },
+      b.tag ? h(Text, { color: t.muted, dimColor: true, wrap: 'truncate-end' }, b.tag) : null,
+      rows.map((line, i) => h(Text, {
+        key: `machine-${i}`,
+        color: 'gray',
+        dimColor: true,
+        wrap: 'truncate-end',
+      }, line)));
+  }
+
+  const align = bubbleAlignment(b);
 
   const borderColor = user ? t.accent : (b.borderColor || t.border);
   const edgeColor = machine ? 'gray' : borderColor;

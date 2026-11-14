@@ -34,7 +34,20 @@ A mention handle may be followed by punctuation, such as `@Name,`; it routes to 
 that profile rather than broadcasting to the room.
 
 Bot bubbles that address a peer are left-aligned so room-directed messages read
-differently from ordinary replies. A normal bot reply is right-aligned.
+differently from ordinary replies. A normal bot reply is right-aligned. The side is
+decided by the turn's recorded intent (`asksPeer`), not by re-scanning the text at
+render time, so a bubble that merely names a peer in passing does not move.
+
+## System chatter vs. profile speech
+
+Ambient automation chatter — background-process completions, async delegation
+completions, diagnostics — is system output, not room speech. It renders as a
+full-width, centred, unbordered row with no speaker label, so it reads as a divider
+rather than a member's bubble.
+
+Anything a profile actually says or does keeps its bubble. A cron job's output is
+delivered content from that profile, so it renders as the profile's normal bubble
+with a dim `⚙ cron · <job-name>` tag.
 
 ## Silent acknowledgements
 

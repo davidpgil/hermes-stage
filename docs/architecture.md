@@ -66,6 +66,13 @@ tabs are not separate sessions; they are lens views over the shared room state.
 The status board always renders one row: a connected bot when one resolves, otherwise a
 degraded placeholder from the roster that shows the profile's configured model.
 
+Bubbles are directional: the user's own bubbles and a bot bubble that addresses a
+peer sit left; ordinary bot replies sit right; ambient automation chatter (machine
+notices, delegation completions, diagnostics) renders as a full-width centred row
+with no frame or speaker label. Cron output is attributed to the profile whose job
+delivered it, so it keeps that profile's bubble and carries a dim `⚙ cron · <name>`
+tag.
+
 ## Performance
 
 - Streamed delta events are buffered and flushed at roughly 80 ms rather than

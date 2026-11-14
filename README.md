@@ -100,7 +100,9 @@ rows that can actually be seen (viewport plus current scroll offset, capped at
 eight screens), so a long room is not re-laid out in full on every frame. The
 animation tick only runs while a turn is genuinely live or a bubble is still
 arriving; a profile parked at `connecting…` gets a 1 s tick, and an idle room
-gets none.
+gets none. Bubbles are directional: the user and peer-addressing bots sit left,
+ordinary bot replies sit right, and ambient automation chatter renders as a
+full-width centred row with no bubble frame.
 
 ## Documentation
 
@@ -115,7 +117,7 @@ gets none.
 
 ## Version
 
-Current release: **0.66.7**
+Current release: **0.66.8**
 
 ## License
 

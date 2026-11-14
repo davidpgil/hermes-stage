@@ -6,6 +6,23 @@ All notable changes to Hermes Stage are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.66.8] - 2026-11-14
+
+### Changed
+
+- Ambient automation chatter (background-process completion, async delegation
+  completion, diagnostics) now renders as a full-width, centred row with no bubble
+  frame and no speaker label. A cron job's output is attributed to the profile that
+  delivered it, so it keeps a normal bubble with the `⚙ cron · <name>` tag.
+- Bubble alignment is decided by the turn's recorded intent (`asksPeer`) rather than
+  by re-scanning bubble text for a peer mention at render time. A bot bubble that
+  names a peer in passing no longer flips sides.
+
+### Tests
+
+- Added alignment tests: user and peer-addressing bubbles left, ordinary replies
+  right, ambient chatter centred and unbordered, machine-row wrapping and padding.
+
 ## [0.66.7] - 2026-11-14
 
 ### Fixed
